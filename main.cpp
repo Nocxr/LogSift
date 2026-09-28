@@ -37,11 +37,13 @@ extern "C" void LogSiftMacTrayInit(void);
 extern "C" bool LogSiftMacTrayTakeOpen(void);
 extern "C" bool LogSiftMacTrayTakeToggleWatch(void);
 extern "C" bool LogSiftMacTrayTakeToggleAutoCopy(void);
+extern "C" bool LogSiftMacTrayTakeToggleSound(void);
 extern "C" bool LogSiftMacTrayTakeOpenLog(void);
 extern "C" bool LogSiftMacTrayTakeCopy(void);
 extern "C" bool LogSiftMacTrayTakeQuit(void);
 extern "C" void LogSiftMacTraySetWatch(bool enabled);
 extern "C" void LogSiftMacTraySetAutoCopy(bool enabled);
+extern "C" void LogSiftMacTraySetSound(bool enabled);
 extern "C" long long LogSiftMacClipboardChangeCount(void);
 extern "C" bool LogSiftMacGetStartAtLogin(void);
 extern "C" bool LogSiftMacSetStartAtLogin(bool enabled);
@@ -63,9 +65,11 @@ bool gTrayExitRequested = false;
 bool gTrayCopyRequested = false;
 bool gTrayWatchToggleRequested = false;
 bool gTrayAutoCopyToggleRequested = false;
+bool gTraySoundToggleRequested = false;
 bool gTrayOpenLogRequested = false;
 bool gTrayWatchEnabled = true;
 bool gTrayAutoCopyEnabled = false;
+bool gTraySoundEnabled = true;
 bool gClipboardUpdatePending = false;
 bool gIgnoreNextClipboardUpdate = false;
 HICON gAppIconSmall = nullptr;
@@ -172,6 +176,7 @@ LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             AppendMenuW(menu, MF_STRING, 1, L"Open");
             AppendMenuW(menu, MF_STRING | (gTrayWatchEnabled ? MF_CHECKED : MF_UNCHECKED), 4, L"Watch Clipboard");
             AppendMenuW(menu, MF_STRING | (gTrayAutoCopyEnabled ? MF_CHECKED : MF_UNCHECKED), 5, L"Auto Copy");
+            AppendMenuW(menu, MF_STRING | (gTraySoundEnabled ? MF_CHECKED : MF_UNCHECKED), 7, L"Sound");
             AppendMenuW(menu, MF_STRING, 6, L"Open Log");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, 3, L"Exit");
@@ -183,6 +188,7 @@ LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             if (cmd == 4) gTrayWatchToggleRequested = true;
             if (cmd == 5) gTrayAutoCopyToggleRequested = true;
             if (cmd == 6) gTrayOpenLogRequested = true;
+            if (cmd == 7) gTraySoundToggleRequested = true;
         }
         return 0;
     }
@@ -2054,10 +2060,12 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     gTrayWatchEnabled = cfg.watchClipboard;
     gTrayAutoCopyEnabled = cfg.autoCopyResults;
+    gTraySoundEnabled = cfg.toastSound;
     bool startAtLogin = WindowsGetStartAtLogin();
 #elif defined(__APPLE__)
     LogSiftMacTraySetWatch(cfg.watchClipboard);
     LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
+    LogSiftMacTraySetSound(cfg.toastSound);
     bool startAtLogin = LogSiftMacGetStartAtLogin();
 #else
     bool startAtLogin = false;
@@ -2214,6 +2222,14 @@ int main(int argc, char** argv) {
             lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "AUTO-COPY", status);
         }
+        if (LogSiftMacTrayTakeToggleSound()) {
+            cfg.toastSound = !cfg.toastSound;
+            LogSiftMacTraySetSound(cfg.toastSound);
+            status = cfg.toastSound ? "Notification sound enabled." : "Notification sound disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
+            AppendActivityLog(appLog, "SOUND", status);
+        }
         if (LogSiftMacTrayTakeOpenLog()) {
             reopenMainWindow();
             showAppLog = true;
@@ -2257,6 +2273,15 @@ int main(int argc, char** argv) {
             lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "AUTO-COPY", status);
         }
+        if (gTraySoundToggleRequested) {
+            gTraySoundToggleRequested = false;
+            cfg.toastSound = !cfg.toastSound;
+            gTraySoundEnabled = cfg.toastSound;
+            status = cfg.toastSound ? "Notification sound enabled." : "Notification sound disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
+            AppendActivityLog(appLog, "SOUND", status);
+        }
         if (gTrayOpenLogRequested) {
             gTrayOpenLogRequested = false;
             reopenMainWindow();
@@ -2286,7 +2311,8 @@ int main(int argc, char** argv) {
             !toastText.empty() || toastProcessing || toastTimerPaused || toastWindowVisible;
         if (hiddenNow && !asyncNow && !toastNow && !gClipboardUpdatePending &&
             !gTrayRestoreRequested && !gTrayWatchToggleRequested &&
-            !gTrayAutoCopyToggleRequested && !gTrayOpenLogRequested &&
+            !gTrayAutoCopyToggleRequested && !gTraySoundToggleRequested &&
+            !gTrayOpenLogRequested &&
             !gTrayCopyRequested && !gTrayExitRequested) {
             MsgWaitForMultipleObjectsEx(0, nullptr, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
             continue;
@@ -3208,7 +3234,16 @@ int main(int argc, char** argv) {
                 ImGui::SameLine(); ImGui::TextDisabled("Only applies while the notification is visible.");
                 ImGui::Checkbox("Acknowledge any clipboard change", &cfg.toastAcknowledgeClipboard);
                 ImGui::SameLine(); ImGui::TextDisabled("Brief popup confirms clipboard watch is active.");
-                ImGui::Checkbox("Play sound", &cfg.toastSound);
+                if (ImGui::Checkbox("Play sound", &cfg.toastSound)) {
+#ifdef _WIN32
+                    gTraySoundEnabled = cfg.toastSound;
+#elif defined(__APPLE__)
+                    LogSiftMacTraySetSound(cfg.toastSound);
+#endif
+                    AppendActivityLog(appLog, "SOUND",
+                        cfg.toastSound ? "Notification sound enabled from Settings."
+                                       : "Notification sound disabled from Settings.");
+                }
                 const char* startSounds[] = {"Off", "Tick", "Soft", "Chime", "Pulse", "Sweep", "Ping", "Triple"};
                 const char* endSounds[] = {"Off", "Soft", "Chime", "Success", "Attention", "Offline", "Pop", "Spark", "Low"};
                 ImGui::TextUnformatted("Start"); ImGui::SameLine();
