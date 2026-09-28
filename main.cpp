@@ -1851,6 +1851,10 @@ int main(int argc, char** argv) {
                         const int initialChunks = static_cast<int>(ChunkModelInput(previewFiltered).size());
                         activeProgress->total = std::max(1, initialChunks);
                         activeProgress->chunking = initialChunks > 1;
+                        if (initialChunks > 1) {
+                            status = "Large clipboard log - chunking " + std::to_string(initialChunks) +
+                                " model chunks; this may take longer.";
+                        }
                         busy = true;
                         request = std::async(std::launch::async,
                             [capturedCfg, capturedInput, capturedPrompt, progress = activeProgress] {
@@ -2353,6 +2357,10 @@ int main(int argc, char** argv) {
                     const int initialChunks = static_cast<int>(ChunkModelInput(previewFiltered).size());
                     activeProgress->total = std::max(1, initialChunks);
                     activeProgress->chunking = initialChunks > 1;
+                    if (initialChunks > 1) {
+                        status = "Large log - chunking " + std::to_string(initialChunks) +
+                            " model chunks; this may take longer.";
+                    }
                     request = std::async(std::launch::async,
                         [capturedCfg, capturedInput, capturedPrompt, progress = activeProgress] {
                             return Send(capturedCfg, capturedInput, capturedPrompt, progress);
