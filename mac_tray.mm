@@ -159,7 +159,7 @@ extern "C" bool LogSiftMacSetStartAtLogin(bool enabled) {
 
     NSDictionary* plist = @{
         @"Label": @"com.nocxr.logsift",
-        @"ProgramArguments": @[@"/usr/bin/open", @"-g", bundlePath],
+        @"ProgramArguments": @[@"/usr/bin/open", @"-g", bundlePath, @"--args", @"--background"],
         @"RunAtLoad": @YES
     };
     return [plist writeToFile:plistPath atomically:YES];
