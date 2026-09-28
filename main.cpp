@@ -545,6 +545,61 @@ bool ToastCloseIconButton(const ImVec4& color, float size = 26.0f) {
     return clicked;
 }
 
+bool ToastGearIconButton(const ImVec4& color, float size = 26.0f) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton("##toast_gear", {size, size});
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    if (hovered) {
+        draw->AddRectFilled(p, {p.x + size, p.y + size},
+            IM_COL32(58, 72, 86, 180), 4.0f);
+        ImGui::SetTooltip("Open Log Sift");
+    }
+
+    const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
+    const ImVec2 center{p.x + size * 0.5f, p.y + size * 0.5f};
+    const float outer = size * 0.28f;
+    const float inner = size * 0.10f;
+    draw->AddCircle(center, outer, fg, 12, 1.7f);
+    draw->AddCircle(center, inner, fg, 10, 1.7f);
+    for (int i = 0; i < 8; ++i) {
+        const float a = static_cast<float>(i) * 3.14159265f / 4.0f;
+        const ImVec2 a0{
+            center.x + std::cos(a) * (outer + 1.0f),
+            center.y + std::sin(a) * (outer + 1.0f)};
+        const ImVec2 a1{
+            center.x + std::cos(a) * (outer + 4.0f),
+            center.y + std::sin(a) * (outer + 4.0f)};
+        draw->AddLine(a0, a1, fg, 2.0f);
+    }
+    return clicked;
+}
+
+bool ColoredCheckbox(const char* label, bool* value, const ImVec4& color) {
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
+    const bool changed = ImGui::Checkbox(label, value);
+    ImGui::PopStyleColor();
+    return changed;
+}
+
+void DrawStatusPill(const char* text, const ImVec4& color) {
+    const ImVec2 textSize = ImGui::CalcTextSize(text);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const ImVec2 size{textSize.x + 14.0f, textSize.y + 6.0f};
+    ImGui::InvisibleButton(text, size);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(
+        p, {p.x + size.x, p.y + size.y},
+        ImGui::ColorConvertFloat4ToU32(ImVec4(color.x, color.y, color.z, 0.15f)),
+        5.0f);
+    draw->AddRect(
+        p, {p.x + size.x, p.y + size.y},
+        ImGui::ColorConvertFloat4ToU32(ImVec4(color.x, color.y, color.z, 0.45f)),
+        5.0f, 0, 1.0f);
+    draw->AddText({p.x + 7.0f, p.y + 3.0f},
+        ImGui::ColorConvertFloat4ToU32(color), text);
+}
+
 std::string ActivityClockTime() {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
