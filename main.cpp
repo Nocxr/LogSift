@@ -4336,11 +4336,13 @@ int main(int argc, char** argv) {
         ColoredCheckbox("Group", &cfg.groupDiagnostics,
             ImVec4(0.38f, 0.88f, 0.56f, 1.0f));
 
-        if (ImGui::CollapsingHeader("Instructions / system prompt")) {
+        if (ImGui::CollapsingHeader("Advanced / system prompt")) {
+            ImGui::TextDisabled(
+                "Used only when the model path is needed; deterministic fast-path runs ignore it.");
             ImGui::InputTextMultiline("##prompt", &prompt, {-1, 120});
         }
 
-        ImGui::SeparatorText("PERFORMANCE / STATS");
+        ImGui::SeparatorText("RUN / STATS");
         const double reduction = stats.inputBytes
             ? 100.0 * (1.0 - static_cast<double>(stats.filteredBytes) /
                 static_cast<double>(stats.inputBytes))
