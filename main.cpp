@@ -505,26 +505,31 @@ bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 26.0f)
         ImGui::SetTooltip(enabled ? "Mute notification sounds" : "Unmute notification sounds");
     }
 
+    // All three popup controls use the same centered 16x16 visual envelope.
     const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
-    const float cx = p.x + size * 0.45f;
-    const float cy = p.y + size * 0.50f;
-    const float left = p.x + size * 0.20f;
+    const ImVec2 center{p.x + size * 0.5f, p.y + size * 0.5f};
+    constexpr float half = 8.0f;
+    const float left = center.x - half;
+    const float speakerFront = center.x - 1.5f;
     ImVec2 speaker[6] = {
-        {left, cy - 3.5f}, {left + 5.0f, cy - 3.5f},
-        {cx, cy - 7.5f}, {cx, cy + 7.5f},
-        {left + 5.0f, cy + 3.5f}, {left, cy + 3.5f}
+        {left, center.y - 3.5f}, {left + 4.5f, center.y - 3.5f},
+        {speakerFront, center.y - 7.0f}, {speakerFront, center.y + 7.0f},
+        {left + 4.5f, center.y + 3.5f}, {left, center.y + 3.5f}
     };
     draw->AddConvexPolyFilled(speaker, 6, fg);
 
     if (enabled) {
-        draw->PathArcTo({cx, cy}, 5.0f, -0.72f, 0.72f, 10);
-        draw->PathStroke(fg, 0, 1.3f);
-        draw->PathArcTo({cx, cy}, 8.0f, -0.62f, 0.62f, 10);
-        draw->PathStroke(fg, 0, 1.3f);
+        draw->PathArcTo({speakerFront, center.y}, 5.0f, -0.72f, 0.72f, 10);
+        draw->PathStroke(fg, 0, 1.5f);
+        draw->PathArcTo({speakerFront, center.y}, 8.0f, -0.62f, 0.62f, 10);
+        draw->PathStroke(fg, 0, 1.5f);
     } else {
-        const float a = size * 0.60f, b = size * 0.82f;
-        draw->AddLine({p.x + a, p.y + size * 0.32f}, {p.x + b, p.y + size * 0.68f}, fg, 1.7f);
-        draw->AddLine({p.x + b, p.y + size * 0.32f}, {p.x + a, p.y + size * 0.68f}, fg, 1.7f);
+        draw->AddLine(
+            {center.x + 1.5f, center.y - 6.5f},
+            {center.x + 7.5f, center.y + 6.5f}, fg, 1.8f);
+        draw->AddLine(
+            {center.x + 7.5f, center.y - 6.5f},
+            {center.x + 1.5f, center.y + 6.5f}, fg, 1.8f);
     }
     return clicked;
 }
@@ -538,9 +543,14 @@ bool ToastCloseIconButton(const ImVec4& color, float size = 26.0f) {
         draw->AddRectFilled(p, {p.x + size, p.y + size},
             IM_COL32(105, 42, 42, 180), 4.0f);
     const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
-    const float lo = size * 0.34f, hi = size * 0.66f;
-    draw->AddLine({p.x + lo, p.y + lo}, {p.x + hi, p.y + hi}, fg, 1.8f);
-    draw->AddLine({p.x + hi, p.y + lo}, {p.x + lo, p.y + hi}, fg, 1.8f);
+    const ImVec2 center{p.x + size * 0.5f, p.y + size * 0.5f};
+    constexpr float half = 7.0f;
+    draw->AddLine(
+        {center.x - half, center.y - half},
+        {center.x + half, center.y + half}, fg, 1.9f);
+    draw->AddLine(
+        {center.x + half, center.y - half},
+        {center.x - half, center.y + half}, fg, 1.9f);
     if (hovered) ImGui::SetTooltip("Close notification");
     return clicked;
 }
@@ -558,18 +568,19 @@ bool ToastGearIconButton(const ImVec4& color, float size = 26.0f) {
 
     const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
     const ImVec2 center{p.x + size * 0.5f, p.y + size * 0.5f};
-    const float outer = size * 0.28f;
-    const float inner = size * 0.10f;
-    draw->AddCircle(center, outer, fg, 12, 1.7f);
-    draw->AddCircle(center, inner, fg, 10, 1.7f);
+    constexpr float ring = 5.2f;
+    constexpr float toothInner = 6.3f;
+    constexpr float toothOuter = 8.0f;
+    draw->AddCircle(center, ring, fg, 16, 1.7f);
+    draw->AddCircle(center, 2.2f, fg, 12, 1.7f);
     for (int i = 0; i < 8; ++i) {
         const float a = static_cast<float>(i) * 3.14159265f / 4.0f;
         const ImVec2 a0{
-            center.x + std::cos(a) * (outer + 1.0f),
-            center.y + std::sin(a) * (outer + 1.0f)};
+            center.x + std::cos(a) * toothInner,
+            center.y + std::sin(a) * toothInner};
         const ImVec2 a1{
-            center.x + std::cos(a) * (outer + 4.0f),
-            center.y + std::sin(a) * (outer + 4.0f)};
+            center.x + std::cos(a) * toothOuter,
+            center.y + std::sin(a) * toothOuter};
         draw->AddLine(a0, a1, fg, 2.0f);
     }
     return clicked;
@@ -4110,6 +4121,26 @@ int main(int argc, char** argv) {
         }
         ImGui::EndDisabled();
         ImGui::SameLine(); ImGui::TextDisabled("%s", computeStatus.c_str());
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::TextColored(
+            ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
+            "WORKSPACE");
+        ImGui::SameLine();
+        const std::string recentWorkspacePill =
+            "RECENTS  " + std::to_string(recentRuns.size());
+        DrawStatusPill(
+            recentWorkspacePill.c_str(),
+            recentRuns.empty()
+                ? ImVec4(0.50f, 0.54f, 0.60f, 1.0f)
+                : ImVec4(0.72f, 0.62f, 1.00f, 1.0f));
+        ImGui::SameLine();
+        ImGui::TextDisabled(
+            "Sift inputs and results  /  browse recent runs  /  settings");
+        ImGui::Separator();
+        ImGui::Spacing();
 
         if (ImGui::BeginTabBar("##main_tabs")) {
             if (ImGui::BeginTabItem("Sift")) {
