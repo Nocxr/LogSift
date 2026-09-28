@@ -282,6 +282,44 @@ struct Config {
     bool toastAcknowledgeClipboard = false;
 };
 
+void ApplyLogSiftStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 5.0f;
+    style.ChildRounding = 4.0f;
+    style.FrameRounding = 3.0f;
+    style.GrabRounding = 3.0f;
+    style.TabRounding = 3.0f;
+    style.ScrollbarRounding = 4.0f;
+    style.FramePadding = ImVec2(7.0f, 4.0f);
+    style.ItemSpacing = ImVec2(7.0f, 5.0f);
+
+    ImVec4* c = style.Colors;
+    c[ImGuiCol_WindowBg]          = ImVec4(0.040f, 0.048f, 0.058f, 1.0f);
+    c[ImGuiCol_ChildBg]           = ImVec4(0.050f, 0.064f, 0.078f, 1.0f);
+    c[ImGuiCol_PopupBg]           = ImVec4(0.055f, 0.067f, 0.080f, 0.98f);
+    c[ImGuiCol_Border]            = ImVec4(0.18f, 0.27f, 0.34f, 0.70f);
+    c[ImGuiCol_FrameBg]           = ImVec4(0.075f, 0.12f, 0.17f, 1.0f);
+    c[ImGuiCol_FrameBgHovered]    = ImVec4(0.10f, 0.20f, 0.29f, 1.0f);
+    c[ImGuiCol_FrameBgActive]     = ImVec4(0.12f, 0.26f, 0.38f, 1.0f);
+    c[ImGuiCol_TitleBg]           = ImVec4(0.045f, 0.060f, 0.073f, 1.0f);
+    c[ImGuiCol_TitleBgActive]     = ImVec4(0.07f, 0.14f, 0.20f, 1.0f);
+    c[ImGuiCol_Header]            = ImVec4(0.08f, 0.22f, 0.33f, 0.85f);
+    c[ImGuiCol_HeaderHovered]     = ImVec4(0.10f, 0.32f, 0.46f, 0.92f);
+    c[ImGuiCol_HeaderActive]      = ImVec4(0.10f, 0.38f, 0.54f, 1.0f);
+    c[ImGuiCol_Button]            = ImVec4(0.08f, 0.25f, 0.38f, 1.0f);
+    c[ImGuiCol_ButtonHovered]     = ImVec4(0.10f, 0.36f, 0.52f, 1.0f);
+    c[ImGuiCol_ButtonActive]      = ImVec4(0.12f, 0.43f, 0.61f, 1.0f);
+    c[ImGuiCol_CheckMark]         = ImVec4(0.20f, 0.82f, 1.00f, 1.0f);
+    c[ImGuiCol_SliderGrab]        = ImVec4(0.23f, 0.69f, 0.92f, 1.0f);
+    c[ImGuiCol_SliderGrabActive]  = ImVec4(0.28f, 0.86f, 1.00f, 1.0f);
+    c[ImGuiCol_Tab]               = ImVec4(0.065f, 0.13f, 0.19f, 1.0f);
+    c[ImGuiCol_TabHovered]        = ImVec4(0.10f, 0.32f, 0.46f, 1.0f);
+    c[ImGuiCol_TabSelected]       = ImVec4(0.08f, 0.25f, 0.37f, 1.0f);
+    c[ImGuiCol_Separator]         = ImVec4(0.20f, 0.34f, 0.43f, 0.70f);
+    c[ImGuiCol_ResizeGrip]        = ImVec4(0.14f, 0.50f, 0.68f, 0.35f);
+    c[ImGuiCol_ResizeGripHovered] = ImVec4(0.18f, 0.67f, 0.90f, 0.70f);
+    c[ImGuiCol_TextSelectedBg]    = ImVec4(0.10f, 0.38f, 0.56f, 0.60f);
+}
 
 std::filesystem::path UserDataDir() {
 #ifdef _WIN32
@@ -1474,6 +1512,7 @@ int main(int argc, char** argv) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+    ApplyLogSiftStyle();
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
     ImGuiContext* mainContext = ImGui::GetCurrentContext();
@@ -1486,6 +1525,7 @@ int main(int argc, char** argv) {
         toastContext = ImGui::CreateContext();
         ImGui::SetCurrentContext(toastContext);
         ImGui::StyleColorsDark();
+        ApplyLogSiftStyle();
         ImGui_ImplSDL3_InitForSDLRenderer(toastWindow, toastRenderer);
         ImGui_ImplSDLRenderer3_Init(toastRenderer);
         ImGui::SetCurrentContext(mainContext);
