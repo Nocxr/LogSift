@@ -52,6 +52,7 @@ bool gTrayCopyRequested = false;
 bool gTrayWatchToggleRequested = false;
 bool gTrayWatchEnabled = true;
 bool gClipboardUpdatePending = false;
+bool gIgnoreNextClipboardUpdate = false;
 HICON gAppIconSmall = nullptr;
 HICON gAppIconBig = nullptr;
 
@@ -136,6 +137,11 @@ HICON CreateLogSiftHIcon(int size) {
 
 LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_CLIPBOARDUPDATE) {
+        if (gIgnoreNextClipboardUpdate) {
+            gIgnoreNextClipboardUpdate = false;
+            gClipboardUpdatePending = false;
+            return 0;
+        }
         gClipboardUpdatePending = true;
         return 0;
     }
@@ -247,6 +253,20 @@ bool WindowsSetStartAtLogin(bool enabled) {
     return rc == ERROR_SUCCESS;
 }
 #endif
+
+bool SetOwnedClipboardText(const std::string& text, std::string* lastClipboardText = nullptr) {
+#ifdef _WIN32
+    gIgnoreNextClipboardUpdate = true;
+#endif
+    if (!SDL_SetClipboardText(text.c_str())) {
+#ifdef _WIN32
+        gIgnoreNextClipboardUpdate = false;
+#endif
+        return false;
+    }
+    if (lastClipboardText) *lastClipboardText = text;
+    return true;
+}
 
 struct Config {
     std::string endpoint = "http://127.0.0.1:1234/v1/chat/completions";
@@ -545,9 +565,7 @@ std::string ApplyOutputPreferences(const std::string& text, const Config& cfg) {
 
 bool MaybeAutoCopyResult(const Config& cfg, const std::string& text, std::string& lastClipboardText) {
     if (!cfg.autoCopyResults || !HasActionableOutput(text)) return false;
-    if (!SDL_SetClipboardText(text.c_str())) return false;
-    lastClipboardText = text;
-    return true;
+    return SetOwnedClipboardText(text, &lastClipboardText);
 }
 
 struct SynthTone { float hz; float start; float duration; float gain; };
@@ -1448,7 +1466,8 @@ std::vector<std::string> DiagnosticEntries(const std::string& text) {
     return entries;
 }
 
-void DrawDiagnosticEntries(const char* id, const std::string& text, float height, std::string& status) {
+void DrawDiagnosticEntries(const char* id, const std::string& text, float height,
+    std::string& status, std::string& lastClipboardText) {
     ImGui::BeginChild(id, {-1, height}, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
     const auto entries = DiagnosticEntries(text);
     if (entries.empty()) ImGui::TextDisabled("No entries.");
@@ -1471,8 +1490,8 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
         ImGui::SetCursorScreenPos(topLeft);
         ImGui::SetNextItemAllowOverlap();
         if (ImGui::InvisibleButton("##entry_click", {std::max(1.0f, bottomRight.x - topLeft.x), std::max(ImGui::GetTextLineHeightWithSpacing(), bottomRight.y - topLeft.y)})) {
-            SDL_SetClipboardText(entry.c_str());
-            status = "Copied diagnostic entry to clipboard.";
+            if (SetOwnedClipboardText(entry, &lastClipboardText))
+                status = "Copied diagnostic entry to clipboard.";
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -1659,8 +1678,7 @@ int main(int argc, char** argv) {
             mainDirty = true;
         }
         if (LogSiftMacTrayTakeCopy() && !output.empty()) {
-            SDL_SetClipboardText(output.c_str());
-            lastClipboardText=output;
+            SetOwnedClipboardText(output, &lastClipboardText);
             status="Result copied from menu bar.";
             mainDirty = true;
         }
@@ -1691,11 +1709,9 @@ int main(int argc, char** argv) {
         if (gTrayCopyRequested) {
             gTrayCopyRequested = false;
             if (!output.empty()) {
-                SDL_SetClipboardText(output.c_str());
-#ifdef _WIN32
+                SetOwnedClipboardText(output, &lastClipboardText);
                 lastClipboardSequence = GetClipboardSequenceNumber();
                 gClipboardUpdatePending = false;
-#endif
                 status = "Result copied from tray.";
             }
         }
@@ -2003,7 +2019,12 @@ int main(int argc, char** argv) {
 
         const bool asyncActiveForMain =
             busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
-        const bool mainNeedsFrame = mainDirty || asyncActiveForMain;
+        const bool mainVisibleForFrame =
+            (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
+        const bool uiBurstActive =
+            mainVisibleForFrame &&
+            (std::chrono::steady_clock::now() - lastUiActivity < std::chrono::milliseconds(1200));
+        const bool mainNeedsFrame = mainDirty || asyncActiveForMain || uiBurstActive;
         if (mainNeedsFrame) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -2227,11 +2248,10 @@ int main(int argc, char** argv) {
         ImGui::SeparatorText("Output / Included");
         const auto [outputLines, outputWords] = HumanTextStats(output);
         ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes", outputLines, outputWords, output.size());
-        DrawDiagnosticEntries("##included_entries", output, 180.0f, status);
+        DrawDiagnosticEntries("##included_entries", output, 180.0f, status, lastClipboardText);
         ImGui::BeginDisabled(output.empty());
         if (ImGui::Button("Copy Result")) {
-            SDL_SetClipboardText(output.c_str());
-            lastClipboardText = output;
+            SetOwnedClipboardText(output, &lastClipboardText);
             status = "Result copied.";
         }
         ImGui::EndDisabled();
@@ -2242,7 +2262,7 @@ int main(int argc, char** argv) {
             const auto [questionableLines, questionableWords] = HumanTextStats(questionableOutput);
             ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes  |  retained for review, not copied",
                 questionableLines, questionableWords, questionableOutput.size());
-            DrawDiagnosticEntries("##questionable_entries", questionableOutput, 180.0f, status);
+            DrawDiagnosticEntries("##questionable_entries", questionableOutput, 180.0f, status, lastClipboardText);
         }
 
         if (ImGui::Button("Clear")) {
@@ -2566,8 +2586,7 @@ int main(int argc, char** argv) {
                 ImGui::SameLine(0.0f, gap);
                 ImGui::BeginDisabled(output.empty());
                 if (ImGui::Button("Copy Results", {copyW, buttonH})) {
-                    SDL_SetClipboardText(output.c_str());
-                    lastClipboardText = output;
+                    SetOwnedClipboardText(output, &lastClipboardText);
 #ifdef _WIN32
                     lastClipboardSequence = GetClipboardSequenceNumber();
 #endif
