@@ -200,6 +200,135 @@ struct Config {
     bool toastAcknowledgeClipboard = false;
 };
 
+
+std::filesystem::path UserDataDir() {
+#ifdef _WIN32
+    const char* home = std::getenv("USERPROFILE");
+#else
+    const char* home = std::getenv("HOME");
+#endif
+    std::filesystem::path base = (home && *home) ? std::filesystem::path(home) : std::filesystem::current_path();
+    return base / ".logsift";
+}
+
+std::filesystem::path SettingsPath() {
+    return UserDataDir() / "settings.json";
+}
+
+json ConfigToJson(const Config& cfg) {
+    return json{
+        {"endpoint", cfg.endpoint},
+        {"model", cfg.model},
+        {"profile_id", cfg.profileId},
+        {"compute_mode", cfg.computeMode},
+        {"show_errors", cfg.showErrors},
+        {"show_warnings", cfg.showWarnings},
+        {"show_context", cfg.showContext},
+        {"show_known_noise", cfg.showKnownNoise},
+        {"show_timestamps", cfg.showTimestamps},
+        {"group_diagnostics", cfg.groupDiagnostics},
+        {"toast_bg", {cfg.toastBg[0], cfg.toastBg[1], cfg.toastBg[2]}},
+        {"toast_accent", {cfg.toastAccent[0], cfg.toastAccent[1], cfg.toastAccent[2]}},
+        {"toast_seconds", cfg.toastSeconds},
+        {"toast_fps", cfg.toastFps},
+        {"toast_sound", cfg.toastSound},
+        {"start_sound_preset", cfg.startSoundPreset},
+        {"end_sound_preset", cfg.endSoundPreset},
+        {"offline_sound_preset", cfg.offlineSoundPreset},
+        {"toast_sound_file", cfg.toastSoundFile},
+        {"toast_show_type", cfg.toastShowType},
+        {"toast_show_bytes", cfg.toastShowBytes},
+        {"toast_show_time", cfg.toastShowTime},
+        {"toast_show_counts", cfg.toastShowCounts},
+        {"toast_show_preview", cfg.toastShowPreview},
+        {"toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard},
+        {"auto_copy_results", cfg.autoCopyResults},
+        {"watch_clipboard", cfg.watchClipboard},
+        {"prefer_fast_path", cfg.preferFastPath}
+    };
+}
+
+void LoadConfig(Config& cfg) {
+    std::error_code ec;
+    std::filesystem::create_directories(UserDataDir(), ec);
+    std::ifstream in(SettingsPath(), std::ios::binary);
+    if (!in) return;
+    try {
+        json j; in >> j;
+        cfg.endpoint = j.value("endpoint", cfg.endpoint);
+        cfg.model = j.value("model", cfg.model);
+        cfg.profileId = j.value("profile_id", cfg.profileId);
+        cfg.computeMode = j.value("compute_mode", cfg.computeMode);
+        cfg.showErrors = j.value("show_errors", cfg.showErrors);
+        cfg.showWarnings = j.value("show_warnings", cfg.showWarnings);
+        cfg.showContext = j.value("show_context", cfg.showContext);
+        cfg.showKnownNoise = j.value("show_known_noise", cfg.showKnownNoise);
+        cfg.showTimestamps = j.value("show_timestamps", cfg.showTimestamps);
+        cfg.groupDiagnostics = j.value("group_diagnostics", cfg.groupDiagnostics);
+        cfg.toastSeconds = j.value("toast_seconds", cfg.toastSeconds);
+        cfg.toastFps = j.value("toast_fps", cfg.toastFps);
+        cfg.toastSound = j.value("toast_sound", cfg.toastSound);
+        cfg.startSoundPreset = j.value("start_sound_preset", cfg.startSoundPreset);
+        cfg.endSoundPreset = j.value("end_sound_preset", cfg.endSoundPreset);
+        cfg.offlineSoundPreset = j.value("offline_sound_preset", cfg.offlineSoundPreset);
+        cfg.toastSoundFile = j.value("toast_sound_file", cfg.toastSoundFile);
+        cfg.toastShowType = j.value("toast_show_type", cfg.toastShowType);
+        cfg.toastShowBytes = j.value("toast_show_bytes", cfg.toastShowBytes);
+        cfg.toastShowTime = j.value("toast_show_time", cfg.toastShowTime);
+        cfg.toastShowCounts = j.value("toast_show_counts", cfg.toastShowCounts);
+        cfg.toastShowPreview = j.value("toast_show_preview", cfg.toastShowPreview);
+        cfg.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard);
+        cfg.autoCopyResults = j.value("auto_copy_results", cfg.autoCopyResults);
+        cfg.watchClipboard = j.value("watch_clipboard", cfg.watchClipboard);
+        cfg.preferFastPath = j.value("prefer_fast_path", cfg.preferFastPath);
+
+        auto loadColor = [&](const char* key, float (&dst)[3]) {
+            if (!j.contains(key) || !j[key].is_array() || j[key].size() < 3) return;
+            for (int i = 0; i < 3; ++i) dst[i] = j[key][i].get<float>();
+        };
+        loadColor("toast_bg", cfg.toastBg);
+        loadColor("toast_accent", cfg.toastAccent);
+    } catch (...) {
+        // A malformed settings file should never prevent Log Sift from starting.
+    }
+}
+
+void SaveConfig(const Config& cfg) {
+    std::error_code ec;
+    std::filesystem::create_directories(UserDataDir(), ec);
+    std::ofstream out(SettingsPath(), std::ios::binary | std::ios::trunc);
+    if (out) out << ConfigToJson(cfg).dump(2) << '\n';
+}
+
+void SeedUserProfiles(const char* argv0) {
+    const std::filesystem::path dest = UserDataDir() / "profiles";
+    std::error_code ec;
+    std::filesystem::create_directories(dest, ec);
+
+    std::vector<std::filesystem::path> sources;
+    if (argv0 && *argv0)
+        sources.push_back(std::filesystem::absolute(argv0).parent_path() / "log-sift-profiles");
+    sources.push_back(std::filesystem::current_path() / "profiles");
+
+    for (const auto& source : sources) {
+        if (!std::filesystem::is_directory(source, ec)) continue;
+        for (const auto& entry : std::filesystem::directory_iterator(source, ec)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+            const auto target = dest / entry.path().filename();
+            if (!std::filesystem::exists(target, ec))
+                std::filesystem::copy_file(entry.path(), target, std::filesystem::copy_options::none, ec);
+            ec.clear();
+        }
+    }
+}
+
+bool HasActionableOutput(const std::string& text) {
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return false;
+    const std::string trimmed = text.substr(first);
+    return trimmed.rfind("NO_DIAGNOSTICS", 0) != 0;
+}
+
 struct SynthTone { float hz; float start; float duration; float gain; };
 
 std::vector<float> MakeNotificationPcm(const std::vector<SynthTone>& tones, float totalSeconds) {
