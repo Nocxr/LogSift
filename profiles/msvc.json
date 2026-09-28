@@ -1,0 +1,27 @@
+{
+  "id": "msvc",
+  "name": "MSVC / Linker",
+  "detect": [
+    "error C",
+    "warning C",
+    "LNK",
+    "cl.exe"
+  ],
+  "high_priority": [
+    "): error C",
+    "fatal error C",
+    "error LNK",
+    "unresolved external symbol"
+  ],
+  "warnings": [
+    "): warning C",
+    "warning LNK"
+  ],
+  "questionable": [
+    "): note:"
+  ],
+  "noise": [
+    "Generating code",
+    "Creating library"
+  ]
+}
