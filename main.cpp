@@ -4380,12 +4380,23 @@ int main(int argc, char** argv) {
                     };
 
                     int contentHeight = 78; // shared popup frame; content adds the rest
-                    if (sizingScanLayout) {
+                    if (sizingOcrPrompt) {
+                        // OCR confirmation has a fixed, known structure:
+                        // header + two prompt lines + image disclosure + action row.
+                        // Do not squeeze it through the generic scan estimate; that
+                        // was what allowed the buttons to overlap the bottom edge.
+                        contentHeight = 166;
+                        if (stats.ocr.present) {
+                            contentHeight += 28; // Image disclosure row.
+                            if (toastOcrStatsExpanded)
+                                contentHeight += ocrPopupRows() * 22;
+                        }
+                    } else if (sizingScanLayout) {
                         if (cfg.scanShowProgress)
-                            contentHeight += sizingOcrPrompt ? 44 : (sizingChunking ? 54 : 34);
+                            contentHeight += sizingChunking ? 54 : 34;
 
                         const bool hasScanStats =
-                            !sizingAcknowledgement && !sizingOcrPrompt &&
+                            !sizingAcknowledgement &&
                             (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
                              cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
                              cfg.scanShowBytesReduction || cfg.scanShowElapsedTime);
@@ -4408,7 +4419,6 @@ int main(int argc, char** argv) {
                         }
                         if (!toastProcessing &&
                             toastOutcome != ToastOutcome::Cancelled &&
-                            toastOutcome != ToastOutcome::OcrPrompt &&
                             cfg.resultShowLifetimeBar)
                             contentHeight += 14;
                     } else {
@@ -4550,14 +4560,26 @@ int main(int argc, char** argv) {
                 ImGui::SameLine(0.0f, 9.0f);
                 DrawToastSourceBadge(stats.sourceKind, outcomeColor);
 
+                const float badgeRightX =
+                    ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
                 const float closeSize = 26.0f;
-                const float topButtonGap = 5.0f;
+                const float topButtonGap = 6.0f;
+                const float controlGroupWidth =
+                    closeSize * 2.0f + topButtonGap;
+                const float freeSpaceLeft = badgeRightX + 8.0f;
+                const float freeSpaceRight =
+                    ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+                const float freeSpaceWidth =
+                    std::max(0.0f, freeSpaceRight - freeSpaceLeft);
+                const float topControlsX =
+                    freeSpaceLeft + std::max(
+                        0.0f,
+                        (freeSpaceWidth - controlGroupWidth) * 0.5f);
+                const float topRowHeight = std::max(26.0f, ImGui::GetTextLineHeight());
                 const float topControlsY =
-                    std::max(0.0f, titleY - 2.0f);
-                ImGui::SetCursorPos(ImVec2(
-                    ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x -
-                        closeSize * 2.0f - topButtonGap,
-                    topControlsY));
+                    titleY + (topRowHeight - closeSize) * 0.5f;
+
+                ImGui::SetCursorPos(ImVec2(topControlsX, topControlsY));
                 const ImVec4 soundIconColor = cfg.toastSound
                     ? outcomeColor
                     : ImVec4(0.58f, 0.60f, 0.64f, 1.0f);
@@ -4579,7 +4601,7 @@ int main(int argc, char** argv) {
                 }
 
                 ImGui::SetCursorPos(ImVec2(
-                    ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - closeSize,
+                    topControlsX + closeSize + topButtonGap,
                     topControlsY));
                 if (ToastCloseIconButton(ImVec4(0.88f, 0.90f, 0.93f, 1.0f), closeSize)) {
                     AppendActivityLog(appLog, "UI",
@@ -4594,7 +4616,7 @@ int main(int argc, char** argv) {
                 }
                 ImGui::SetCursorPosY(std::max(
                     ImGui::GetCursorPosY(),
-                    titleY + closeSize));
+                    titleY + std::max(closeSize, 26.0f) + 2.0f));
 
                 const bool scanLayout =
                     toastProcessing ||
