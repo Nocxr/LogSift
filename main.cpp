@@ -4495,6 +4495,15 @@ int main(int argc, char** argv) {
                             }
                             ImGui::TextDisabled("%s  |  %s",
                                 run.logType.c_str(), run.route.c_str());
+                            std::string inputPreview = run.input;
+                            std::replace(
+                                inputPreview.begin(), inputPreview.end(), '\n', ' ');
+                            std::replace(
+                                inputPreview.begin(), inputPreview.end(), '\r', ' ');
+                            if (inputPreview.size() > 72)
+                                inputPreview = inputPreview.substr(0, 69) + "...";
+                            if (!inputPreview.empty())
+                                ImGui::TextDisabled("%s", inputPreview.c_str());
                             const size_t diagCount =
                                 DiagnosticEntries(run.output).size();
                             ImGui::TextDisabled(
@@ -4534,6 +4543,15 @@ int main(int argc, char** argv) {
                             run.seconds,
                             run.promptTokens,
                             run.completionTokens);
+                        if (run.ocr.present) {
+                            ImGui::TextColored(
+                                ImVec4(0.25f, 0.88f, 0.78f, 1.0f),
+                                "OCR: %.2f s  |  %d + %d tok  |  %zu bytes extracted",
+                                run.ocr.seconds,
+                                run.ocr.promptTokens,
+                                run.ocr.completionTokens,
+                                run.ocr.outputBytes);
+                        }
 
                         if (ImGui::Button("Load into Sift")) {
                             applyRecentRun(selectedRecent);
