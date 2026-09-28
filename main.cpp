@@ -1865,7 +1865,7 @@ int main(int argc, char** argv) {
     bool toastProcessing = false;
     bool toastSoundPlayed = false;
     bool toastAutoCopied = false;
-    enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Failure };
+    enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Cancelled, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
     std::future<SiftResult> request;
@@ -1902,6 +1902,31 @@ int main(int argc, char** argv) {
 #ifdef __APPLE__
     long long lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
 #endif
+
+    auto cancelActiveSift = [&](const char* source) {
+        if (!busy) return;
+
+        ++requestGeneration; // permanently invalidate the result from this worker
+        if (activeProgress)
+            activeProgress->cancelled = true;
+
+        busy = false;
+        request = std::future<SiftResult>{};
+        activeProgress.reset();
+
+        stats.route = "Cancelled";
+        status = "Sift cancelled.";
+        toastProcessing = false;
+        toastAutoCopied = false;
+        toastOutcome = ToastOutcome::Cancelled;
+        toastText = "Cancelled";
+        toastSoundPlayed = true;
+        toastShownAt = std::chrono::steady_clock::now();
+        toastUntil = toastShownAt + std::chrono::milliseconds(1800);
+
+        AppendActivityLog(appLog, "CANCEL",
+            std::string("Sift cancelled from ") + source + ".");
+    };
 
     auto startHealthCheck = [&](bool startupSequence, bool warnIfUnreachable) {
         if (checkingHealth) {
@@ -2729,6 +2754,11 @@ int main(int argc, char** argv) {
                 }
             }
             ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!busy);
+            if (ImGui::Button("Cancel##main_sift"))
+                cancelActiveSift("main window");
+            ImGui::EndDisabled();
 
             if (busy) {
                 ImGui::SameLine();
@@ -3013,6 +3043,7 @@ int main(int argc, char** argv) {
                 else if (toastOutcome == ToastOutcome::Empty) outcomeColor = ImVec4(0.88f, 0.68f, 0.20f, 1.0f);
                 else if (toastOutcome == ToastOutcome::OfflineFallback) outcomeColor = ImVec4(0.20f, 0.82f, 1.00f, 1.0f);
                 else if (toastOutcome == ToastOutcome::ModelFallback) outcomeColor = ImVec4(0.78f, 0.48f, 1.00f, 1.0f);
+                else if (toastOutcome == ToastOutcome::Cancelled) outcomeColor = ImVec4(0.72f, 0.74f, 0.78f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Failure) outcomeColor = ImVec4(0.92f, 0.28f, 0.28f, 1.0f);
                 const ImVec4 toastBackground =
                     toastOutcome == ToastOutcome::OfflineFallback
@@ -3037,6 +3068,7 @@ int main(int argc, char** argv) {
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
                     toastOutcome == ToastOutcome::OfflineFallback ? "LOG SIFT - OFFLINE FALLBACK" :
                     toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL RESPONSE FALLBACK" :
+                    toastOutcome == ToastOutcome::Cancelled ? "LOG SIFT - CANCELLED" :
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
                 ImGui::SameLine();
@@ -3174,30 +3206,42 @@ int main(int argc, char** argv) {
                 // Keep actions pinned to the lower-right so content above can grow
                 // without making the notification controls wander around.
                 const float buttonH = 28.0f;
-                const float openW = 72.0f, copyW = 112.0f, dismissW = 82.0f, gap = 8.0f;
-                const float totalW = openW + copyW + dismissW + gap * 2.0f;
+                const float openW = 72.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 88.0f, gap = 8.0f;
                 const float bottomY = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - buttonH;
                 if (ImGui::GetCursorPosY() < bottomY) ImGui::SetCursorPosY(bottomY);
-                ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
-                    ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
-                if (ImGui::Button("Open", {openW, buttonH})) {
-                    reopenMainWindow();
-                    toastText.clear();
-                }
-                ImGui::SameLine(0.0f, gap);
-                ImGui::BeginDisabled(output.empty());
-                if (ImGui::Button("Copy Results", {copyW, buttonH})) {
-                    SetOwnedClipboardText(output, &lastClipboardText);
+
+                if (toastProcessing) {
+                    const float totalW = openW + cancelW + gap;
+                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
+                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
+                    if (ImGui::Button("Open", {openW, buttonH}))
+                        reopenMainWindow();
+                    ImGui::SameLine(0.0f, gap);
+                    if (ImGui::Button("Cancel", {cancelW, buttonH}))
+                        cancelActiveSift("notification");
+                } else {
+                    const float totalW = openW + copyW + dismissW + gap * 2.0f;
+                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
+                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
+                    if (ImGui::Button("Open", {openW, buttonH})) {
+                        reopenMainWindow();
+                        toastText.clear();
+                    }
+                    ImGui::SameLine(0.0f, gap);
+                    ImGui::BeginDisabled(output.empty());
+                    if (ImGui::Button("Copy Results", {copyW, buttonH})) {
+                        SetOwnedClipboardText(output, &lastClipboardText);
 #ifdef _WIN32
-                    lastClipboardSequence = GetClipboardSequenceNumber();
+                        lastClipboardSequence = GetClipboardSequenceNumber();
 #endif
-                    status = "Result copied.";
-                    AppendActivityLog(appLog, "COPY", "Result copied from notification.");
-                    toastText.clear();
+                        status = "Result copied.";
+                        AppendActivityLog(appLog, "COPY", "Result copied from notification.");
+                        toastText.clear();
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::SameLine(0.0f, gap);
+                    if (ImGui::Button("Dismiss", {dismissW, buttonH})) toastText.clear();
                 }
-                ImGui::EndDisabled();
-                ImGui::SameLine(0.0f, gap);
-                if (ImGui::Button("Dismiss", {dismissW, buttonH})) toastText.clear();
                 ImGui::End();
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
