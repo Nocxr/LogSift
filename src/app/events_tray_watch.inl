@@ -399,3 +399,21 @@
         }
 
         SDL_Event event{};
+        bool hasWaitingEvent = false;
+#ifdef __APPLE__
+        // With both windows hidden, SDL can wait for native menu/window events.
+        // Wake periodically only to sample NSPasteboard (which has no change event).
+        const bool mainHiddenForWait =
+            (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) != 0;
+        const bool toastVisibleForWait =
+            toastWindow && (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_HIDDEN) == 0;
+        const bool asyncForWait =
+            busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
+        const bool toastForWait =
+            !toastText.empty() || toastProcessing || toastTimerPaused || toastVisibleForWait;
+        if (running && mainHiddenForWait && !asyncForWait && !toastForWait) {
+            hasWaitingEvent = SDL_WaitEventTimeout(
+                &event, cfg.watchClipboard ? 350 : 500);
+            if (!hasWaitingEvent) continue;
+        }
+#endif

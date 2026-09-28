@@ -1,7 +1,8 @@
 // SDL events plus async model/benchmark/request completion.
 // Included by main.cpp; keep this module focused on this responsibility.
 
-        while (SDL_PollEvent(&event)) {
+        while (hasWaitingEvent || SDL_PollEvent(&event)) {
+            hasWaitingEvent = false;
             const SDL_WindowID toastWindowId = toastWindow ? SDL_GetWindowID(toastWindow) : 0;
             if (!toastProcessing && toastTimerPaused && toastWindowId != 0) {
                 const bool toastLostFocus =
