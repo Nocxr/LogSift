@@ -3443,9 +3443,11 @@ int main(int argc, char** argv) {
                         toastProcessing && activeProgress && activeProgress->chunking.load();
                     const bool sizingAcknowledgement =
                         !toastProcessing && toastOutcome == ToastOutcome::Processing;
+                    const bool sizingScanLayout =
+                        toastProcessing || toastOutcome == ToastOutcome::Cancelled;
 
-                    int contentHeight = 78; // title + padding + action row; content adds the rest
-                    if (toastProcessing) {
+                    int contentHeight = 78; // shared popup frame; content adds the rest
+                    if (sizingScanLayout) {
                         if (cfg.scanShowProgress)
                             contentHeight += sizingChunking ? 54 : 34;
 
@@ -3609,12 +3611,21 @@ int main(int argc, char** argv) {
                 ImGui::PopStyleColor(3);
                 ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), titleY + ImGui::GetTextLineHeightWithSpacing()));
 
-                if (toastProcessing) {
-                    const double elapsed = std::chrono::duration<double>(
-                        std::chrono::steady_clock::now() - requestStarted).count();
+                const bool scanLayout =
+                    toastProcessing || toastOutcome == ToastOutcome::Cancelled;
+                if (scanLayout) {
+                    const double elapsed = toastProcessing
+                        ? std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - requestStarted).count()
+                        : stats.seconds;
 
                     if (cfg.scanShowProgress) {
-                        if (chunkingNow) {
+                        if (toastOutcome == ToastOutcome::Cancelled) {
+                            ImGui::TextColored(outcomeColor, "Sift cancelled");
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                            ImGui::ProgressBar(1.0f, {-1, 5}, "");
+                            ImGui::PopStyleColor();
+                        } else if (chunkingNow) {
                             const int done = activeProgress->completed.load();
                             const int total = std::max(1, activeProgress->total.load());
                             ImGui::TextColored(outcomeColor, "Chunk %d / %d",
@@ -3903,33 +3914,28 @@ int main(int argc, char** argv) {
                 const float openW = 82.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 82.0f, gap = 8.0f;
                 ImGui::Spacing();
 
-                if (toastProcessing) {
+                if (toastProcessing || toastOutcome == ToastOutcome::Cancelled) {
                     ImGui::Separator();
                     ImGui::Spacing();
-                    const float totalW = openW + cancelW + gap;
+                    const bool cancelledLayout = toastOutcome == ToastOutcome::Cancelled;
+                    const float secondW = cancelledLayout ? dismissW : cancelW;
+                    const float totalW = openW + secondW + gap;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
                     if (ImGui::Button("Open", {openW, buttonH}))
                         reopenMainWindow();
                     ImGui::SameLine(0.0f, gap);
-                    if (ImGui::Button("Cancel", {cancelW, buttonH}))
-                        cancelActiveSift("notification");
+                    if (cancelledLayout) {
+                        if (ImGui::Button("Dismiss", {dismissW, buttonH}))
+                            toastText.clear();
+                    } else {
+                        if (ImGui::Button("Cancel", {cancelW, buttonH}))
+                            cancelActiveSift("notification");
+                    }
                 } else if (acknowledgementToast) {
                     ImGui::Separator();
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - dismissW));
-                    if (ImGui::Button("Dismiss", {dismissW, buttonH}))
-                        toastText.clear();
-                } else if (toastOutcome == ToastOutcome::Cancelled) {
-                    ImGui::Separator();
-                    const float totalW = openW + dismissW + gap;
-                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
-                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
-                    if (ImGui::Button("Open", {openW, buttonH})) {
-                        reopenMainWindow();
-                        toastText.clear();
-                    }
-                    ImGui::SameLine(0.0f, gap);
                     if (ImGui::Button("Dismiss", {dismissW, buttonH}))
                         toastText.clear();
                 } else {
