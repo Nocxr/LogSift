@@ -4181,6 +4181,10 @@ int main(int argc, char** argv) {
                             if (toastOcrStatsExpanded)
                                 contentHeight += ocrPopupRows() * 22;
                         }
+                        if (!toastProcessing &&
+                            toastOutcome != ToastOutcome::Cancelled &&
+                            cfg.resultShowLifetimeBar)
+                            contentHeight += 14;
                     } else {
                         if (cfg.resultShowDiagnosticTotal) contentHeight += 22;
                         if (cfg.resultShowFallbackNotice &&
