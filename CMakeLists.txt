@@ -59,6 +59,8 @@ target_include_directories(logsift_imgui PUBLIC
 target_link_libraries(logsift_imgui PUBLIC SDL3::SDL3)
 
 add_executable(logsift main.cpp)
+target_compile_definitions(logsift PRIVATE
+    LOGSIFT_VERSION="${PROJECT_VERSION}")
 
 if(APPLE)
     set(LOGSIFT_GENERATED_ICON_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated-icons")
