@@ -3159,6 +3159,8 @@ int main(int argc, char** argv) {
                 std::cout << '\n';
         }
 
+        if (!modelError.empty())
+            return 3;
         return hasDiagnostics ? 0 : 1;
     }
 #ifdef _WIN32
