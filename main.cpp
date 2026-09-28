@@ -24,6 +24,7 @@
 #include <functional>
 #include <ctime>
 #include <iomanip>
+#include <thread>
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
@@ -2023,12 +2024,16 @@ int main(int argc, char** argv) {
             LogSiftMacTraySetWatch(cfg.watchClipboard);
             lastClipboardText.clear();
             status=cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "WATCH", status);
         }
         if (LogSiftMacTrayTakeToggleAutoCopy()) {
             cfg.autoCopyResults = !cfg.autoCopyResults;
             LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
             status = cfg.autoCopyResults ? "Auto copy enabled." : "Auto copy disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "AUTO-COPY", status);
         }
         if (LogSiftMacTrayTakeOpenLog()) {
@@ -2061,6 +2066,8 @@ int main(int argc, char** argv) {
             gClipboardUpdatePending = false;
             lastClipboardText.clear();
             status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "WATCH", status);
         }
         if (gTrayAutoCopyToggleRequested) {
@@ -2068,6 +2075,8 @@ int main(int argc, char** argv) {
             cfg.autoCopyResults = !cfg.autoCopyResults;
             gTrayAutoCopyEnabled = cfg.autoCopyResults;
             status = cfg.autoCopyResults ? "Auto copy enabled." : "Auto copy disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "AUTO-COPY", status);
         }
         if (gTrayOpenLogRequested) {
@@ -3118,9 +3127,13 @@ int main(int argc, char** argv) {
                     if (display && SDL_GetDisplayUsableBounds(display, &usable)) {
                         const int tw = 460;
                         const int autoCopyExtra = toastAutoCopied ? 28 : 0;
+                        const int tokenStatsExtra = stats.inputBytes > 0
+                            ? (stats.promptTokens > 0 || stats.completionTokens > 0 ? 42 : 22)
+                            : 0;
                         const int th = cfg.toastShowPreview
-                            ? std::clamp(165 + cfg.toastPreviewLines * 24 + autoCopyExtra, 190, 448)
-                            : 165 + autoCopyExtra;
+                            ? std::clamp(165 + cfg.toastPreviewLines * 24 +
+                                autoCopyExtra + tokenStatsExtra, 212, 500)
+                            : 165 + autoCopyExtra + tokenStatsExtra;
                         SDL_SetWindowSize(toastWindow, tw, th);
                         SDL_SetWindowPosition(toastWindow, usable.x + usable.w - tw - 18, usable.y + usable.h - th - 18);
                     }
