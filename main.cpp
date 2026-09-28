@@ -362,6 +362,8 @@ struct Config {
     bool ocrEnabled = true;
     bool autoScanImages = true;
     float ocrPromptSeconds = 8.0f;
+    bool ocrPromptShowImageDetails = true;
+    bool ocrPromptShowTimeoutBar = true;
     int recentLimit = 5;
     bool preferFastPath = true;
     // Legacy shared popup toggles are kept for settings migration.
@@ -720,6 +722,8 @@ json ConfigToJson(const Config& cfg) {
         {"ocr_enabled", cfg.ocrEnabled},
         {"auto_scan_images", cfg.autoScanImages},
         {"ocr_prompt_seconds", cfg.ocrPromptSeconds},
+        {"ocr_prompt_show_image_details", cfg.ocrPromptShowImageDetails},
+        {"ocr_prompt_show_timeout_bar", cfg.ocrPromptShowTimeoutBar},
         {"recent_limit", cfg.recentLimit},
         {"prefer_fast_path", cfg.preferFastPath}
     };
@@ -790,6 +794,10 @@ void LoadConfig(Config& cfg) {
         cfg.autoScanImages = j.value("auto_scan_images", cfg.autoScanImages);
         cfg.ocrPromptSeconds = std::clamp(
             j.value("ocr_prompt_seconds", cfg.ocrPromptSeconds), 2.0f, 60.0f);
+        cfg.ocrPromptShowImageDetails =
+            j.value("ocr_prompt_show_image_details", cfg.ocrPromptShowImageDetails);
+        cfg.ocrPromptShowTimeoutBar =
+            j.value("ocr_prompt_show_timeout_bar", cfg.ocrPromptShowTimeoutBar);
         cfg.recentLimit = std::clamp(
             j.value("recent_limit", cfg.recentLimit), 1, 50);
         cfg.preferFastPath = j.value("prefer_fast_path", cfg.preferFastPath);
@@ -5028,9 +5036,9 @@ int main(int argc, char** argv) {
                         // Do not squeeze it through the generic scan estimate; that
                         // was what allowed the buttons to overlap the bottom edge.
                         contentHeight = 178;
-                        if (cfg.resultShowLifetimeBar)
+                        if (cfg.ocrPromptShowTimeoutBar)
                             contentHeight += 14;
-                        if (stats.ocr.present) {
+                        if (cfg.ocrPromptShowImageDetails && stats.ocr.present) {
                             contentHeight += 28; // Image disclosure row.
                             if (toastOcrStatsExpanded)
                                 contentHeight += ocrPopupRows() * 22;
@@ -5408,7 +5416,9 @@ int main(int argc, char** argv) {
                         }
                     }
 
-                    if (stats.ocr.present) {
+                    if (stats.ocr.present &&
+                        (toastOutcome != ToastOutcome::OcrPrompt ||
+                         cfg.ocrPromptShowImageDetails)) {
                         ToastDisclosureRow(
                             "scan_ocr_stats",
                             toastOutcome == ToastOutcome::OcrPrompt ? "Image" : "OCR pass",
@@ -5707,9 +5717,13 @@ int main(int argc, char** argv) {
                 }
                 // Optional lifetime bar belongs to content, never below the
                 // action row. Every popup therefore ends with the same footer.
+                const bool showToastLifetimeBar =
+                    toastOutcome == ToastOutcome::OcrPrompt
+                        ? cfg.ocrPromptShowTimeoutBar
+                        : cfg.resultShowLifetimeBar;
                 if (!toastProcessing &&
                     toastOutcome != ToastOutcome::Cancelled &&
-                    cfg.resultShowLifetimeBar) {
+                    showToastLifetimeBar) {
                     ImGui::Spacing();
                     const auto nowToast = std::chrono::steady_clock::now();
                     const float remaining = toastTimerPaused
