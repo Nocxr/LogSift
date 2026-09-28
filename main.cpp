@@ -1266,10 +1266,10 @@ int main(int argc, char** argv) {
     LoadConfig(cfg);
     if (!std::filesystem::exists(SettingsPath())) SaveConfig(cfg);
 #ifdef _WIN32
-    gTrayWatchEnabled = cfg.cfg.watchClipboard;
+    gTrayWatchEnabled = cfg.watchClipboard;
     bool startAtLogin = WindowsGetStartAtLogin();
 #elif defined(__APPLE__)
-    LogSiftMacTraySetWatch(cfg.cfg.watchClipboard);
+    LogSiftMacTraySetWatch(cfg.watchClipboard);
     bool startAtLogin = LogSiftMacGetStartAtLogin();
 #else
     bool startAtLogin = false;
@@ -1296,7 +1296,6 @@ int main(int argc, char** argv) {
     enum class ToastOutcome { Processing, Success, Empty, Fallback, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
-    bool cfg.preferFastPath = true;
     std::future<SiftResult> request;
     unsigned long long requestGeneration = 0;
     unsigned long long activeRequestGeneration = 0;
