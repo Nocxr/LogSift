@@ -1686,8 +1686,6 @@ int main(int argc, char** argv) {
     double lastResponseSeconds = 0.0;
     size_t lastInputBytes = 0, lastFilteredBytes = 0;
     auto lastClipboardCheck = std::chrono::steady_clock::now(); // non-Windows fallback only
-    auto lastUiActivity = std::chrono::steady_clock::now();
-    bool mainDirty = true;
 #ifdef __APPLE__
     long long lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
 #endif
@@ -1697,20 +1695,16 @@ int main(int argc, char** argv) {
         if (LogSiftMacTrayTakeOpen()) {
             SDL_ShowWindow(window);
             SDL_RaiseWindow(window);
-            lastUiActivity = std::chrono::steady_clock::now();
-            mainDirty = true;
         }
         if (LogSiftMacTrayTakeToggleWatch()) {
             cfg.watchClipboard=!cfg.watchClipboard;
             LogSiftMacTraySetWatch(cfg.watchClipboard);
             lastClipboardText.clear();
             status=cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
-            mainDirty = true;
         }
         if (LogSiftMacTrayTakeCopy() && !output.empty()) {
             SetOwnedClipboardText(output, &lastClipboardText);
             status="Result copied from menu bar.";
-            mainDirty = true;
         }
         if (LogSiftMacTrayTakeQuit()) running=false;
 #endif
@@ -1819,8 +1813,7 @@ int main(int argc, char** argv) {
                 lastInputBytes = 0;
                 lastFilteredBytes = 0;
                 stats = {};
-                mainDirty = true;
-                if (cfg.toastAcknowledgeClipboard) {
+                    if (cfg.toastAcknowledgeClipboard) {
                     toastText = "Clipboard detected";
                     toastProcessing = false;
                     toastOutcome = ToastOutcome::Processing;
@@ -1896,21 +1889,6 @@ int main(int argc, char** argv) {
 
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
-            mainDirty = true;
-            const bool uiActivityEvent =
-                event.type == SDL_EVENT_MOUSE_MOTION ||
-                event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-                event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
-                event.type == SDL_EVENT_MOUSE_WHEEL ||
-                event.type == SDL_EVENT_KEY_DOWN ||
-                event.type == SDL_EVENT_KEY_UP ||
-                event.type == SDL_EVENT_TEXT_INPUT ||
-                event.type == SDL_EVENT_WINDOW_SHOWN ||
-                event.type == SDL_EVENT_WINDOW_EXPOSED ||
-                event.type == SDL_EVENT_WINDOW_RESIZED ||
-                event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
-                event.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
-            if (uiActivityEvent) lastUiActivity = std::chrono::steady_clock::now();
             if (toastContext && toastWindow && event.window.windowID == SDL_GetWindowID(toastWindow)) {
                 ImGui::SetCurrentContext(toastContext);
                 ImGui_ImplSDL3_ProcessEvent(&event);
@@ -1938,7 +1916,6 @@ int main(int argc, char** argv) {
         }
 
         if (busy && request.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            mainDirty = true;
             lastResponseSeconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - requestStarted).count();
             if (activeRequestGeneration != requestGeneration) {
@@ -2043,23 +2020,19 @@ int main(int argc, char** argv) {
             }
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            mainDirty = true;
             try { health = healthRequest.get(); }
             catch (const std::exception&) { health = "Offline / unreachable"; }
             checkingHealth = false;
         }
         if (loadingModels && modelListRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            mainDirty = true;
             try { availableModels = modelListRequest.get(); } catch (...) { availableModels.clear(); }
             loadingModels = false;
         }
         if (applyingCompute && computeRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            mainDirty = true;
             try { computeStatus = computeRequest.get(); } catch (const std::exception& e) { computeStatus = std::string("Compute change failed: ") + e.what(); }
             applyingCompute = false;
         }
         if (benchmarking && benchmarkRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            mainDirty = true;
             try { benchmarkStatus = benchmarkRequest.get(); }
             catch (const std::exception& e) { benchmarkStatus = std::string("Benchmark failed: ") + e.what(); }
             benchmarking = false;
@@ -2525,7 +2498,6 @@ int main(int argc, char** argv) {
         } else {
             ImGui::EndFrame();
         }
-        mainDirty = false;
 
         const std::string configSnapshot = ConfigToJson(cfg).dump();
         if (configSnapshot != lastSavedConfig) {
