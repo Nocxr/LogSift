@@ -3503,9 +3503,9 @@ int main(int argc, char** argv) {
                         }
                     }
 
-                    if (cfg.scanShowSource || cfg.scanShowPrefilterCounts ||
-                        cfg.scanShowEstimatedTokens || cfg.scanShowBytesReduction ||
-                        cfg.scanShowElapsedTime) {
+                    if (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
+                        cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
+                        cfg.scanShowBytesReduction || cfg.scanShowElapsedTime) {
                         ToastDisclosureRow("scan_stats", "Stats", toastStatsExpanded, outcomeColor);
                         if (toastStatsExpanded && ImGui::BeginTable("##scan_popup_stats", 2,
                             ImGuiTableFlags_SizingStretchProp)) {
@@ -3517,6 +3517,20 @@ int main(int argc, char** argv) {
                                 ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Source");
                                 ImGui::TableSetColumnIndex(1);
                                 ImGui::TextUnformatted(stats.logType.c_str());
+                            }
+                            if (cfg.scanShowModel) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Model");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::TextUnformatted(stats.model.empty() ? cfg.model.c_str() : stats.model.c_str());
+                            }
+                            if (cfg.scanShowRoute) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Route");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%s  |  %s",
+                                    stats.route.c_str(),
+                                    stats.compute.empty() ? "Auto" : stats.compute.c_str());
                             }
                             if (cfg.scanShowPrefilterCounts) {
                                 ImGui::TableNextRow();
@@ -3589,10 +3603,13 @@ int main(int argc, char** argv) {
                         sourceLabel += " / " + stats.profile;
 
                     const bool hasResultStats =
-                        cfg.resultShowSource || cfg.resultShowPrefilterCounts ||
-                        cfg.resultShowEstimatedTokens ||
+                        cfg.resultShowSource || cfg.resultShowModel || cfg.resultShowRoute ||
+                        cfg.resultShowPrefilterCounts || cfg.resultShowEstimatedTokens ||
                         (cfg.resultShowRealTokens &&
                             (stats.promptTokens > 0 || stats.completionTokens > 0)) ||
+                        (cfg.resultShowTokenSpeed &&
+                            (stats.promptTokensPerSecond > 0.0 ||
+                             stats.completionTokensPerSecond > 0.0)) ||
                         cfg.resultShowBytesReduction || cfg.resultShowTime;
 
                     if (hasResultStats) {
@@ -3609,6 +3626,20 @@ int main(int argc, char** argv) {
                             ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Source");
                             ImGui::TableSetColumnIndex(1);
                             ImGui::TextUnformatted(sourceLabel.c_str());
+                        }
+                        if (cfg.resultShowModel) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Model");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextUnformatted(stats.model.empty() ? cfg.model.c_str() : stats.model.c_str());
+                        }
+                        if (cfg.resultShowRoute) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Route");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%s  |  %s",
+                                stats.route.c_str(),
+                                stats.compute.empty() ? "Auto" : stats.compute.c_str());
                         }
                         if (cfg.resultShowPrefilterCounts) {
                             ImGui::TableNextRow();
@@ -3635,6 +3666,25 @@ int main(int argc, char** argv) {
                                 stats.promptTokens, stats.completionTokens);
                             ImGui::SameLine();
                             ImGui::TextDisabled("(real)");
+                        }
+                        if (cfg.resultShowTokenSpeed &&
+                            (stats.promptTokensPerSecond > 0.0 ||
+                             stats.completionTokensPerSecond > 0.0)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Token speed");
+                            ImGui::TableSetColumnIndex(1);
+                            if (stats.promptTokensPerSecond > 0.0 &&
+                                stats.completionTokensPerSecond > 0.0) {
+                                ImGui::Text("%.0f prompt/s  |  %.0f output/s",
+                                    stats.promptTokensPerSecond,
+                                    stats.completionTokensPerSecond);
+                            } else if (stats.completionTokensPerSecond > 0.0) {
+                                ImGui::Text("%.0f output tok/s",
+                                    stats.completionTokensPerSecond);
+                            } else {
+                                ImGui::Text("%.0f prompt tok/s",
+                                    stats.promptTokensPerSecond);
+                            }
                         }
                         if (cfg.resultShowBytesReduction) {
                             const double reduced = stats.inputBytes > 0
@@ -3687,38 +3737,41 @@ int main(int argc, char** argv) {
                             previewEntries.size(),
                             static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10)));
                         if (toastPreviewExpanded) {
-                        for (size_t i = 0; i < previewCount; ++i) {
-                            std::string preview = previewEntries[i];
-                            const size_t nl = preview.find('\n');
-                            if (nl != std::string::npos) preview.resize(nl);
-                            if (preview.size() > 88)
-                                preview = preview.substr(0, 85) + "...";
-                            ImVec4 previewColor(0.78f, 0.80f, 0.84f, 1.0f);
-                            if (preview.find("Fatal") != std::string::npos ||
-                                preview.find("Error") != std::string::npos ||
-                                preview.find(" error ") != std::string::npos ||
-                                preview.find("error:") != std::string::npos)
-                                previewColor = ImVec4(0.95f, 0.30f, 0.30f, 1.0f);
-                            else if (preview.find("Warning") != std::string::npos ||
-                                preview.find("warning") != std::string::npos)
-                                previewColor = ImVec4(0.95f, 0.72f, 0.24f, 1.0f);
-                            else if (preview.find("note:") != std::string::npos ||
-                                preview.find("Note:") != std::string::npos)
-                                previewColor = ImVec4(0.38f, 0.68f, 0.95f, 1.0f);
-                            ImGui::TextColored(previewColor, "%s", preview.c_str());
-                        }
-                        if (previewEntries.size() > previewCount)
-                            ImGui::TextDisabled("+%zu more",
-                                previewEntries.size() - previewCount);
+                            std::ostringstream previewText;
+                            int previewVisualLines = 0;
+                            for (size_t i = 0; i < previewCount; ++i) {
+                                previewText << previewEntries[i] << '\n';
+                                previewVisualLines += 1 + static_cast<int>(
+                                    std::count(previewEntries[i].begin(),
+                                               previewEntries[i].end(), '\n'));
+                            }
+
+                            const float previewHeight = static_cast<float>(
+                                std::max(38, previewVisualLines * 20 +
+                                    static_cast<int>(previewCount) * 5 + 12));
+                            DrawDiagnosticEntries(
+                                "##toast_preview_entries",
+                                previewText.str(),
+                                previewHeight,
+                                status,
+                                lastClipboardText,
+                                appLog,
+                                copyFlash);
+
+                            if (previewEntries.size() > previewCount)
+                                ImGui::TextDisabled("+%zu more",
+                                    previewEntries.size() - previewCount);
                         }
                     }
                 }
                 // Actions follow the content directly; no artificial spacer/pinning.
                 const float buttonH = 28.0f;
-                const float openW = 72.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 88.0f, gap = 8.0f;
+                const float openW = 82.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 82.0f, gap = 8.0f;
                 ImGui::Spacing();
 
                 if (toastProcessing) {
+                    ImGui::Separator();
+                    ImGui::Spacing();
                     const float totalW = openW + cancelW + gap;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
@@ -3738,13 +3791,14 @@ int main(int argc, char** argv) {
                     ImGui::SameLine(0.0f, gap);
                     ImGui::BeginDisabled(output.empty());
                     if (ImGui::Button("Copy Results", {copyW, buttonH})) {
-                        SetOwnedClipboardText(output, &lastClipboardText);
+                        if (SetOwnedClipboardText(output, &lastClipboardText)) {
+                            StartCopyFlash(copyFlash, true);
 #ifdef _WIN32
-                        lastClipboardSequence = GetClipboardSequenceNumber();
+                            lastClipboardSequence = GetClipboardSequenceNumber();
 #endif
-                        status = "Result copied.";
-                        AppendActivityLog(appLog, "COPY", "Result copied from notification.");
-                        toastText.clear();
+                            status = "Result copied.";
+                            AppendActivityLog(appLog, "COPY", "Result copied from notification.");
+                        }
                     }
                     ImGui::EndDisabled();
                     ImGui::SameLine(0.0f, gap);
