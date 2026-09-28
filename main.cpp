@@ -5338,6 +5338,13 @@ int main(int argc, char** argv) {
                 if (ImGui::BeginTable(
                         "##image_detected_popup_content", 3,
                         ImGuiTableFlags_SizingStretchSame)) {
+                    bool askBeforeOcr = !cfg.autoScanImages;
+                    ImGui::TableNextColumn();
+                    if (ImGui::Checkbox(
+                            "Ask before OCR##ocr_prompt",
+                            &askBeforeOcr)) {
+                        cfg.autoScanImages = !askBeforeOcr;
+                    }
                     ImGui::TableNextColumn();
                     ImGui::Checkbox(
                         "Image details##ocr_prompt",
@@ -5346,11 +5353,10 @@ int main(int argc, char** argv) {
                     ImGui::Checkbox(
                         "Timeout bar##ocr_prompt",
                         &cfg.ocrPromptShowTimeoutBar);
-                    ImGui::TableNextColumn();
-                    ImGui::TextDisabled(
-                        "Timeout: %.1f s", cfg.ocrPromptSeconds);
                     ImGui::EndTable();
                 }
+                ImGui::TextDisabled(
+                    "Prompt timeout: %.1f s", cfg.ocrPromptSeconds);
 
                 ImGui::Spacing();
                 ImGui::TextColored(ImVec4(0.30f, 0.90f, 0.48f, 1.0f), "Complete / Result");
