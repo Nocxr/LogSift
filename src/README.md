@@ -17,6 +17,6 @@ Log Sift's release-polish implementation used to live in a single ~6,400-line `m
 
 ## Implementation note
 
-The release-polish UI/event loop has a large amount of deliberately shared local runtime state. The processing helpers in `core/process.cpp` compile independently and share declarations through `core/process.h`. Configuration data lives in `config/config_types.h`. The UI and event-loop files are still lexical fragments included by the composition root because they share local runtime state. CMake lists those fragments as HEADER_FILE_ONLY so IDEs show the layout without compiling them twice.
+The release-polish UI/event loop has a large amount of deliberately shared local runtime state. The processing helpers in `core/process.cpp` and settings persistence in `config/config_store.cpp` compile independently. Their headers declare the shared interfaces, with configuration data in `config/config_types.h`. The UI and event-loop files are still lexical fragments included by the composition root because they share local runtime state. CMake lists those fragments as HEADER_FILE_ONLY so IDEs show the layout without compiling them twice.
 
 The next architectural pass should introduce explicit app state, then move the CLI, model, profiles, and UI sections into independent translation units.

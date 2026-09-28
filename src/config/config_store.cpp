@@ -1,5 +1,14 @@
+#include "config_store.h"
+
+#include <algorithm>
+#include <cstdlib>
+#include <fstream>
+#include <vector>
+
+using json = nlohmann::json;
+
 // Settings paths, JSON serialization, loading, saving, profile seeding.
-// Included by main.cpp; keep this module focused on this responsibility.
+// Compiled separately from the application entry point.
 
 std::filesystem::path UserDataDir() {
 #ifdef _WIN32

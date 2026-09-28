@@ -5,6 +5,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 #include <nlohmann/json.hpp>
 #include "src/config/config_types.h"
+#include "src/config/config_store.h"
 #include "src/core/process.h"
 
 #include <array>
@@ -67,7 +68,6 @@ using json = nlohmann::json;
 #include "src/platform/clipboard.inl"
 #include "src/ui/style.inl"
 #include "src/core/activity.inl"
-#include "src/config/config_store.inl"
 #include "src/core/output_prefs.inl"
 #include "src/audio/notifications.inl"
 #include "src/core/stats_history.inl"

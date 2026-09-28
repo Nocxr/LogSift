@@ -65,7 +65,7 @@ set(LOGSIFT_SOURCE_FRAGMENTS
     src/core/process.h
     src/ui/style.inl
     src/core/activity.inl
-    src/config/config_store.inl
+    src/config/config_store.h
     src/core/output_prefs.inl
     src/audio/notifications.inl
     src/core/stats_history.inl
@@ -98,6 +98,7 @@ set_source_files_properties(${LOGSIFT_SOURCE_FRAGMENTS} PROPERTIES HEADER_FILE_O
 add_executable(logsift
     main.cpp
     src/core/process.cpp
+    src/config/config_store.cpp
     ${LOGSIFT_SOURCE_FRAGMENTS})
 target_compile_definitions(logsift PRIVATE
     LOGSIFT_VERSION="${PROJECT_VERSION}")
