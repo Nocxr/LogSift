@@ -328,6 +328,17 @@ bool HasActionableOutput(const std::string& text) {
     return trimmed.rfind("NO_DIAGNOSTICS", 0) != 0;
 }
 
+bool MaybeAutoCopyResult(const Config& cfg, const std::string& text, std::string& lastClipboardText) {
+    if (!cfg.autoCopyResults || !HasActionableOutput(text)) return false;
+    if (!SDL_SetClipboardText(text.c_str())) return false;
+    lastClipboardText = text;
+#ifdef _WIN32
+    lastClipboardSequence = GetClipboardSequenceNumber();
+    gClipboardUpdatePending = false;
+#endif
+    return true;
+}
+
 struct SynthTone { float hz; float start; float duration; float gain; };
 
 std::vector<float> MakeNotificationPcm(const std::vector<SynthTone>& tones, float totalSeconds) {
@@ -1488,7 +1499,8 @@ int main(int argc, char** argv) {
                     if (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
                         output = FastStructuredResult(previewFiltered);
                         stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - requestStarted).count();
-                        status = "Clipboard log parsed.";
+                        const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                        status = autoCopied ? "Clipboard log parsed and result auto-copied." : "Clipboard log parsed.";
                         toastText = "Complete";
                         toastProcessing = false;
                         toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
@@ -1570,7 +1582,8 @@ int main(int argc, char** argv) {
                     stats.completionTokensPerSecond = result.completionTokensPerSecond;
                     if (stats.promptTokens > 0 && stats.seconds > 0.0)
                         stats.estimatedPromptTokensPerSecond = static_cast<double>(stats.promptTokens) / stats.seconds;
-                    status = "Done.";
+                    const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                    status = autoCopied ? "Done - result auto-copied." : "Done.";
                     if (cfg.watchClipboard) {
                         toastText = "Complete";
                         toastProcessing = false;
@@ -1598,7 +1611,10 @@ int main(int argc, char** argv) {
                     stats.completionTokensPerSecond = 0.0;
                     stats.estimatedPromptTokensPerSecond = 0.0;
                     health = "Offline / unavailable";
-                    status = std::string("LLM unavailable - local fallback used. ") + e.what();
+                    const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                    status = std::string(autoCopied
+                        ? "LLM unavailable - local fallback used and actionable result auto-copied. "
+                        : "LLM unavailable - local fallback used. ") + e.what();
 
                     if (cfg.watchClipboard) {
                         toastText = "Offline fallback";
@@ -1808,7 +1824,8 @@ int main(int argc, char** argv) {
                 lastResponseSeconds = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - requestStarted).count();
                 stats.seconds = lastResponseSeconds;
-                status = "Done - deterministic fast path.";
+                const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                status = autoCopied ? "Done - deterministic result auto-copied." : "Done - deterministic fast path.";
             } else {
                 status = "Sending to model...";
                 ++requestGeneration;
