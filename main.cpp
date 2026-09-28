@@ -610,9 +610,9 @@ void PlaySynthPreset(int preset, bool startEvent) {
     auto pcm = MakeNotificationPcm(tones, seconds);
     if (!EnsureNotificationAudio()) return;
 
-    // Reuse one audio device/stream for the entire app lifetime. Repeatedly opening
-    // and destroying the default device can cause audible pops on Bluetooth/headphones.
-    SDL_ClearAudioStream(gNotificationAudioStream);
+    // Reuse one audio device/stream for the entire app lifetime. Do not clear an
+    // in-flight buffer when another test is clicked; abruptly cutting a waveform
+    // can itself create a click/pop.
     SDL_PutAudioStreamData(gNotificationAudioStream, pcm.data(),
         static_cast<int>(pcm.size() * sizeof(float)));
     SDL_FlushAudioStream(gNotificationAudioStream);
@@ -1239,7 +1239,7 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
                     : "")}}
         })},
         {"temperature", 0},
-        {"max_tokens", 256}
+        {"max_tokens", 1024}
     };
 
     const auto temp = std::filesystem::temp_directory_path() /
@@ -1534,6 +1534,9 @@ int main(int argc, char** argv) {
         return result.empty() ? 1 : 0;
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) return 1;
+    // Keep the notification device alive for the whole process. This avoids
+    // repeatedly opening/closing Bluetooth or USB headset paths for tiny UI sounds.
+    EnsureNotificationAudio();
     SDL_WindowFlags mainWindowFlags = SDL_WINDOW_RESIZABLE;
     if (backgroundMode) mainWindowFlags |= SDL_WINDOW_HIDDEN;
     SDL_Window* window = SDL_CreateWindow("Log Sift", 1100, 760, mainWindowFlags);
