@@ -2836,8 +2836,6 @@ int main(int argc, char** argv) {
     std::string cliEndpoint;
     std::string cliModel;
 
-    LoadProfiles(argc > 0 ? argv[0] : nullptr);
-
     auto requireValue = [&](int& i, const std::string& option) -> std::string {
         if (i + 1 >= argc) {
             std::cerr << "logsift: " << option << " requires a value\n"
@@ -2950,6 +2948,8 @@ int main(int argc, char** argv) {
         cliFile = arg;
     }
 
+    LoadProfiles(argc > 0 ? argv[0] : nullptr);
+
     if (cliListProfiles) {
         std::cout << "auto\tAutomatic detection\n";
         for (const auto& profile : gProfiles)
@@ -2960,6 +2960,12 @@ int main(int argc, char** argv) {
     if (cliMode) {
         if (!cliImage.empty() && !cliFile.empty()) {
             std::cerr << "logsift: --image cannot be combined with --file or a positional log file\n";
+            return 2;
+        }
+
+        if (cliProfile != "auto" && !FindProfile(cliProfile)) {
+            std::cerr << "logsift: unknown profile '" << cliProfile << "'\n"
+                      << "Use --list-profiles to see installed profile IDs.\n";
             return 2;
         }
 
@@ -3074,10 +3080,15 @@ int main(int argc, char** argv) {
                     }
                 }
             } else {
-                result = LooksLikeStructuredBuildDiagnostics(candidate)
+                const bool structured =
+                    LooksLikeStructuredBuildDiagnostics(candidate);
+                result = structured
                     ? FastStructuredResult(candidate)
                     : candidate;
                 result = ApplyOutputPreferences(result, cliCfg);
+                route = structured
+                    ? "Deterministic fast path"
+                    : "Local prefilter";
             }
 
             if (result.empty())
