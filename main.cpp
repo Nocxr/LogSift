@@ -1283,6 +1283,12 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     DWORD lastClipboardSequence = 0;
 #endif
+    auto markOwnClipboardWrite = [&]() {
+#ifdef _WIN32
+        lastClipboardSequence = GetClipboardSequenceNumber();
+        gClipboardUpdatePending = false;
+#endif
+    };
     std::string toastText;
     std::chrono::steady_clock::time_point toastUntil{};
     bool toastProcessing = false;
@@ -1496,6 +1502,7 @@ int main(int argc, char** argv) {
                         output = FastStructuredResult(previewFiltered);
                         stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - requestStarted).count();
                         const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                        if (autoCopied) markOwnClipboardWrite();
                         status = autoCopied ? "Clipboard log parsed and result auto-copied." : "Clipboard log parsed.";
                         toastText = "Complete";
                         toastProcessing = false;
@@ -1579,6 +1586,7 @@ int main(int argc, char** argv) {
                     if (stats.promptTokens > 0 && stats.seconds > 0.0)
                         stats.estimatedPromptTokensPerSecond = static_cast<double>(stats.promptTokens) / stats.seconds;
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                    if (autoCopied) markOwnClipboardWrite();
                     status = autoCopied ? "Done - result auto-copied." : "Done.";
                     if (cfg.watchClipboard) {
                         toastText = "Complete";
@@ -1608,6 +1616,7 @@ int main(int argc, char** argv) {
                     stats.estimatedPromptTokensPerSecond = 0.0;
                     health = "Offline / unavailable";
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                    if (autoCopied) markOwnClipboardWrite();
                     status = std::string(autoCopied
                         ? "LLM unavailable - local fallback used and actionable result auto-copied. "
                         : "LLM unavailable - local fallback used. ") + e.what();
@@ -1821,6 +1830,7 @@ int main(int argc, char** argv) {
                     std::chrono::steady_clock::now() - requestStarted).count();
                 stats.seconds = lastResponseSeconds;
                 const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                if (autoCopied) markOwnClipboardWrite();
                 status = autoCopied ? "Done - deterministic result auto-copied." : "Done - deterministic fast path.";
             } else {
                 status = "Sending to model...";
