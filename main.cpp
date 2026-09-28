@@ -3116,7 +3116,14 @@ int main(int argc, char** argv) {
                 if (!cfg.ocrEnabled) {
                     status = "Clipboard image ignored - OCR is disabled.";
                     AppendActivityLog(appLog, "OCR", status);
+                } else if (!visionSupportKnown || !visionSupported) {
+                    beginOcrScan(std::move(clipboardImage), "OCR", "Clipboard image");
+                } else if (cfg.autoScanImages) {
+                    beginOcrScan(std::move(clipboardImage), "OCR", "Clipboard image");
                 } else {
+                    pendingOcrImage = std::move(clipboardImage);
+                    pendingOcrImageReady = true;
+
                     output.clear();
                     questionableOutput.clear();
                     lastInputBytes = 0;
@@ -3127,60 +3134,26 @@ int main(int argc, char** argv) {
                     stats.logType = "Image / OCR";
                     stats.profile = "Vision OCR";
                     stats.model = cfg.model;
-                    stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
-                    stats.inputBytes = clipboardImage.bytes.size();
-                    stats.route = "Vision OCR";
+                    stats.compute =
+                        cfg.computeMode == 1 ? "GPU max" :
+                        cfg.computeMode == 2 ? "CPU" : "Auto";
+                    stats.inputBytes = pendingOcrImage.bytes.size();
+                    stats.route = "Awaiting OCR";
                     stats.ocr.present = true;
-                    stats.ocr.mimeType = clipboardImage.mimeType;
-                    stats.ocr.imageBytes = clipboardImage.bytes.size();
+                    stats.ocr.mimeType = pendingOcrImage.mimeType;
+                    stats.ocr.imageBytes = pendingOcrImage.bytes.size();
 
-                    if (!visionSupportKnown || !visionSupported) {
-                    status = visionSupportKnown
-                        ? "Clipboard image ignored - selected model does not support Vision/OCR."
-                        : "Clipboard image ignored - Vision/OCR support has not been confirmed.";
-                    stats.route = visionSupportKnown ? "Vision unsupported" : "Vision unknown";
-                    toastText = "Vision unavailable";
+                    status = "Clipboard image detected - waiting for OCR confirmation.";
+                    toastText = "Image detected";
                     toastProcessing = false;
-                    toastOutcome = ToastOutcome::Failure;
-                    toastSoundPlayed = false;
+                    toastOutcome = ToastOutcome::OcrPrompt;
                     toastAutoCopied = false;
                     toastShownAt = now;
-                    toastUntil = now + std::chrono::milliseconds(
-                        static_cast<int>(cfg.toastSeconds * 1000.0f));
-                    AppendActivityLog(appLog, "OCR",
-                        "Image not sent: " + status);
-                } else {
-                    ++requestGeneration;
-                    input.clear();
-                    requestStarted = now;
-                    toastText = "Reading image";
-                    toastProcessing = true;
-                    toastOutcome = ToastOutcome::Processing;
-                    toastSoundPlayed = false;
-                    toastAutoCopied = false;
-                    toastShownAt = now;
-                    toastUntil = now + std::chrono::hours(1);
+                    toastUntil = now + std::chrono::hours(12);
                     if (cfg.toastSound) PlaySynthPreset(cfg.startSoundPreset, true);
-
-                    const Config capturedCfg = cfg;
-                    const std::string capturedPrompt = prompt;
-                    activeRequestGeneration = requestGeneration;
-                    activeProgress = std::make_shared<SiftProgress>();
-                    activeProgress->total = 1;
-                    activeProgress->chunking = false;
-                    busy = true;
-                    status = "Clipboard image detected - extracting text...";
+                    toastSoundPlayed = true;
                     AppendActivityLog(appLog, "OCR",
-                        "Clipboard image sent to " + cfg.model + " for Vision/OCR.");
-                    request = LaunchSiftTask(
-                        [capturedCfg,
-                         capturedImage = std::move(clipboardImage),
-                         capturedPrompt,
-                         progress = activeProgress]() mutable {
-                            return SendClipboardImage(
-                                capturedCfg, capturedImage, capturedPrompt, progress);
-                        });
-                    }
+                        "Clipboard image detected; waiting for Start OCR.");
                 }
             }
 
@@ -3356,7 +3329,13 @@ int main(int argc, char** argv) {
             }
             if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_GRAVE && !ImGui::GetIO().WantTextInput) showAppLog = !showAppLog;
             if (event.type == SDL_EVENT_DROP_FILE) {
-                if (LoadFile(event.drop.data, input, status)) {
+                ClipboardImage droppedImage;
+                std::string droppedStatus;
+                if (LoadImageFile(event.drop.data, droppedImage, droppedStatus)) {
+                    status = droppedStatus;
+                    AppendActivityLog(appLog, "FILE", status);
+                    beginOcrScan(std::move(droppedImage), "File", "Dropped image");
+                } else if (LoadFile(event.drop.data, input, status)) {
                     AppendActivityLog(appLog, "FILE", status);
                     output.clear();
                     questionableOutput.clear();
