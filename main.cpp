@@ -3364,6 +3364,8 @@ int main(int argc, char** argv) {
                     const int tw = 460;
                     const bool sizingChunking =
                         toastProcessing && activeProgress && activeProgress->chunking.load();
+                    const bool sizingAcknowledgement =
+                        !toastProcessing && toastOutcome == ToastOutcome::Processing;
 
                     int contentHeight = 78; // title + padding + action row; content adds the rest
                     if (toastProcessing) {
@@ -3386,6 +3388,9 @@ int main(int argc, char** argv) {
                                 if (cfg.scanShowElapsedTime) contentHeight += 22;
                             }
                         }
+                    } else if (sizingAcknowledgement) {
+                        contentHeight += 26; // acknowledgement message
+                        if (cfg.resultShowLifetimeBar) contentHeight += 14;
                     } else {
                         if (cfg.resultShowDiagnosticTotal) contentHeight += 22;
                         if (cfg.resultShowFallbackNotice &&
