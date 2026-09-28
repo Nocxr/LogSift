@@ -1780,7 +1780,9 @@ bool ToastDisclosureRow(const char* id, const char* label, bool& expanded, const
 
     std::string text = expanded ? "[-] " : "[+] ";
     text += label;
-    if (ImGui::Selectable(text.c_str(), false, ImGuiSelectableFlags_None, ImVec2(-1.0f, 22.0f)))
+    if (ImGui::Selectable(
+            text.c_str(), false, ImGuiSelectableFlags_None,
+            ImVec2(ImGui::GetContentRegionAvail().x, 22.0f)))
         expanded = !expanded;
 
     ImGui::PopStyleColor(3);
