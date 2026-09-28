@@ -4,6 +4,26 @@
 struct SynthTone { float hz; float start; float duration; float gain; };
 
 SDL_AudioStream* gNotificationAudioStream = nullptr;
+std::chrono::steady_clock::time_point gNotificationAudioPlaybackUntil{};
+
+void ShutdownNotificationAudio() {
+    if (!gNotificationAudioStream) return;
+    SDL_DestroyAudioStream(gNotificationAudioStream);
+    gNotificationAudioStream = nullptr;
+    gNotificationAudioPlaybackUntil = {};
+}
+
+// An open SDL playback stream keeps CoreAudio running even when it is silent.
+// Give the device time to play its last buffered samples, then release it.
+void MaybeShutdownNotificationAudio() {
+    if (!gNotificationAudioStream) return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < gNotificationAudioPlaybackUntil + std::chrono::milliseconds(750))
+        return;
+    if (SDL_GetAudioStreamQueued(gNotificationAudioStream) <= 0)
+        ShutdownNotificationAudio();
+}
+
 
 bool EnsureNotificationAudio() {
     if (gNotificationAudioStream) return true;
@@ -14,13 +34,9 @@ bool EnsureNotificationAudio() {
     gNotificationAudioStream = SDL_OpenAudioDeviceStream(
         SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
     if (!gNotificationAudioStream) return false;
-    return SDL_ResumeAudioStreamDevice(gNotificationAudioStream);
-}
-
-void ShutdownNotificationAudio() {
-    if (!gNotificationAudioStream) return;
-    SDL_DestroyAudioStream(gNotificationAudioStream);
-    gNotificationAudioStream = nullptr;
+    if (SDL_ResumeAudioStreamDevice(gNotificationAudioStream)) return true;
+    ShutdownNotificationAudio();
+    return false;
 }
 
 std::vector<float> MakeNotificationPcm(const std::vector<SynthTone>& tones, float totalSeconds) {
@@ -69,12 +85,16 @@ void PlaySynthPreset(int preset, bool startEvent) {
     auto pcm = MakeNotificationPcm(tones, seconds);
     if (!EnsureNotificationAudio()) return;
 
-    // Reuse one audio device/stream for the entire app lifetime. Do not clear an
-    // in-flight buffer when another test is clicked; abruptly cutting a waveform
-    // can itself create a click/pop.
-    SDL_PutAudioStreamData(gNotificationAudioStream, pcm.data(),
-        static_cast<int>(pcm.size() * sizeof(float)));
-    SDL_FlushAudioStream(gNotificationAudioStream);
+    // Keep the stream while sounds are queued so a new notification does not
+    // cut off the previous waveform. The idle loop releases it after playback.
+    if (SDL_PutAudioStreamData(gNotificationAudioStream, pcm.data(),
+            static_cast<int>(pcm.size() * sizeof(float)))) {
+        SDL_FlushAudioStream(gNotificationAudioStream);
+        const auto now = std::chrono::steady_clock::now();
+        gNotificationAudioPlaybackUntil =
+            std::max(now, gNotificationAudioPlaybackUntil) +
+            std::chrono::milliseconds(static_cast<int>(seconds * 1000.0f));
+    }
 }
 
 void PlayEndSound(const Config& cfg, bool failure=false) {

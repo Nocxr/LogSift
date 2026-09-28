@@ -2,6 +2,7 @@
 // Included by main.cpp; keep this module focused on this responsibility.
 
     while (running) {
+        MaybeShutdownNotificationAudio();
 #ifdef __APPLE__
         if (LogSiftMacTrayTakeOpen()) {
             reopenMainWindow();
