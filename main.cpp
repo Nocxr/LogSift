@@ -3036,14 +3036,9 @@ int main(int argc, char** argv) {
         r.completionTokensPerSecond = stats.completionTokensPerSecond;
         r.ocr = stats.ocr;
 
-        if (!recentRuns.empty() &&
-            recentRuns.front().input == r.input &&
-            recentRuns.front().output == r.output &&
-            recentRuns.front().questionable == r.questionable) {
-            recentRuns.front() = std::move(r);
-        } else {
-            recentRuns.insert(recentRuns.begin(), std::move(r));
-        }
+        // History is run-based, not content-deduplicated: repeating the same
+        // input with another model/profile still counts as a distinct recent run.
+        recentRuns.insert(recentRuns.begin(), std::move(r));
 
         if (static_cast<int>(recentRuns.size()) > cfg.recentLimit)
             recentRuns.resize(static_cast<size_t>(cfg.recentLimit));
