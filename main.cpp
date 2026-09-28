@@ -3303,7 +3303,7 @@ int main(int argc, char** argv) {
                     const bool sizingChunking =
                         toastProcessing && activeProgress && activeProgress->chunking.load();
 
-                    int contentHeight = 126; // title + padding + pinned action row
+                    int contentHeight = 104; // title + padding + action row
                     if (toastProcessing) {
                         if (cfg.scanShowProgress)
                             contentHeight += sizingChunking ? 54 : 34;
@@ -3662,26 +3662,10 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
-                if (!toastProcessing && cfg.resultShowLifetimeBar) {
-                    const auto nowToast = std::chrono::steady_clock::now();
-                    const float remaining = toastTimerPaused
-                        ? std::max(0.0f,
-                            std::chrono::duration<float>(toastPausedRemaining).count())
-                        : std::max(0.0f,
-                            std::chrono::duration<float>(toastUntil - nowToast).count());
-                    const float fraction = cfg.toastSeconds > 0.0f
-                        ? std::clamp(remaining / cfg.toastSeconds, 0.0f, 1.0f)
-                        : 0.0f;
-                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
-                    ImGui::ProgressBar(fraction, {-1, 4}, "");
-                    ImGui::PopStyleColor();
-                }
-                // Keep actions pinned to the lower-right so content above can grow
-                // without making the notification controls wander around.
+                // Actions follow the content directly; no artificial spacer/pinning.
                 const float buttonH = 28.0f;
                 const float openW = 72.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 88.0f, gap = 8.0f;
-                const float bottomY = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - buttonH;
-                if (ImGui::GetCursorPosY() < bottomY) ImGui::SetCursorPosY(bottomY);
+                ImGui::Spacing();
 
                 if (toastProcessing) {
                     const float totalW = openW + cancelW + gap;
@@ -3715,6 +3699,23 @@ int main(int argc, char** argv) {
                     ImGui::SameLine(0.0f, gap);
                     if (ImGui::Button("Dismiss", {dismissW, buttonH})) toastText.clear();
                 }
+
+                if (!toastProcessing && cfg.resultShowLifetimeBar) {
+                    ImGui::Spacing();
+                    const auto nowToast = std::chrono::steady_clock::now();
+                    const float remaining = toastTimerPaused
+                        ? std::max(0.0f,
+                            std::chrono::duration<float>(toastPausedRemaining).count())
+                        : std::max(0.0f,
+                            std::chrono::duration<float>(toastUntil - nowToast).count());
+                    const float fraction = cfg.toastSeconds > 0.0f
+                        ? std::clamp(remaining / cfg.toastSeconds, 0.0f, 1.0f)
+                        : 0.0f;
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                    ImGui::ProgressBar(fraction, {-1, 4}, "");
+                    ImGui::PopStyleColor();
+                }
+
                 ImGui::End();
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
