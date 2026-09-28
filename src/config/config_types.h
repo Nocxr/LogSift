@@ -1,6 +1,8 @@
 // Persistent application configuration data.
 // Shared by the application and compiled processing helpers.
 
+#include <string>
+
 struct Config {
     std::string endpoint = "http://127.0.0.1:1234/v1/chat/completions";
     std::string model = "google/gemma-4-e4b";

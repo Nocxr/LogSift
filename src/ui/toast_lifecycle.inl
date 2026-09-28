@@ -14,54 +14,12 @@
         }
         const auto toastTimerNow = std::chrono::steady_clock::now();
 
-        // Every newly-created notification starts with a clean hover-hold state.
-        if (toastShownAt != toastPauseToastShownAt) {
-            toastPauseToastShownAt = toastShownAt;
-            toastTimerPaused = false;
-            toastMouseWasOver = false;
-            toastResumeRequested = false;
-            toastPausedRemaining = {};
-            toastMouseLeftAt = {};
-        }
-
-        if (!toastProcessing && !toastText.empty() && toastWindow) {
-            const bool mouseOverToast =
-                (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_MOUSE_FOCUS) != 0;
-
-            if (mouseOverToast) {
-                if (!toastTimerPaused) {
-                    toastPausedRemaining = std::max(
-                        std::chrono::steady_clock::duration::zero(),
-                        toastUntil - toastTimerNow);
-                    toastTimerPaused = true;
-                }
-                toastMouseLeftAt = {};
-                toastMouseWasOver = true;
-            } else if (toastTimerPaused) {
-                if (toastResumeRequested) {
-                    toastUntil = toastTimerNow + toastPausedRemaining;
-                    toastTimerPaused = false;
-                    toastMouseLeftAt = {};
-                    toastResumeRequested = false;
-                } else {
-                    if (toastMouseWasOver && toastMouseLeftAt.time_since_epoch().count() == 0)
-                        toastMouseLeftAt = toastTimerNow;
-
-                    constexpr auto kToastHoverGrace = std::chrono::seconds(2);
-                    if (toastMouseLeftAt.time_since_epoch().count() != 0 &&
-                        toastTimerNow - toastMouseLeftAt >= kToastHoverGrace) {
-                        toastUntil = toastTimerNow + toastPausedRemaining;
-                        toastTimerPaused = false;
-                        toastMouseLeftAt = {};
-                    }
-                }
-                toastMouseWasOver = false;
-            }
-        }
-
-        const bool toastActive =
-            !toastText.empty() &&
-            (toastProcessing || toastTimerPaused || toastTimerNow < toastUntil);
+        const bool hoverEnabled = !toastProcessing && !toastText.empty() && toastWindow;
+        const bool mouseOverToast = hoverEnabled &&
+            (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_MOUSE_FOCUS) != 0;
+        const bool toastActive = AdvancePopupTimer(
+            app.popupTimer, toastTimerNow, toastShownAt, toastUntil,
+            toastProcessing, !toastText.empty(), hoverEnabled, mouseOverToast);
         if (!toastActive && !toastText.empty()) {
             if (toastOutcome == ToastOutcome::OcrPrompt) {
                 pendingOcrImage = {};

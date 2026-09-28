@@ -44,6 +44,26 @@ FetchContent_Declare(nlohmann_json
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Use the OS libcurl on macOS; build a static Schannel-backed copy on
+# Windows so a separate curl executable or OpenSSL install is unnecessary.
+if(WIN32)
+    set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+    set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
+    set(CURL_USE_OPENSSL OFF CACHE BOOL "" FORCE)
+    set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+    set(BUILD_TESTING OFF)
+    FetchContent_Declare(curl
+        GIT_REPOSITORY https://github.com/curl/curl.git
+        GIT_TAG curl-8_17_0
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(curl)
+    unset(BUILD_TESTING)
+else()
+    find_package(CURL REQUIRED)
+endif()
+
 add_library(logsift_imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -78,6 +98,9 @@ set(LOGSIFT_SOURCE_FRAGMENTS
     src/ui/widgets.inl
     src/cli/help.inl
     src/cli/run.inl
+    src/app/state.inl
+    src/model/http.h
+    src/ui/popup_timer.h
     src/app/setup.inl
     src/app/events_tray_watch.inl
     src/app/events_sdl_async.inl
@@ -99,6 +122,8 @@ add_executable(logsift
     main.cpp
     src/core/process.cpp
     src/config/config_store.cpp
+    src/model/http.cpp
+    src/ui/popup_timer.cpp
     ${LOGSIFT_SOURCE_FRAGMENTS})
 target_compile_definitions(logsift PRIVATE
     LOGSIFT_VERSION="${PROJECT_VERSION}")
@@ -155,7 +180,8 @@ endif()
 target_link_libraries(logsift PRIVATE
     SDL3::SDL3
     logsift_imgui
-    nlohmann_json::nlohmann_json)
+    nlohmann_json::nlohmann_json
+    CURL::libcurl)
 
 add_custom_command(TARGET logsift POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -179,4 +205,21 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
         _WIN32_WINNT=0x0A00)
     target_link_libraries(logsift PRIVATE winmm)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(logsift_core_tests
+        tests/core_tests.cpp
+        src/core/process.cpp
+        src/config/config_store.cpp
+        src/ui/popup_timer.cpp)
+    target_include_directories(logsift_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(logsift_core_tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME logsift_core COMMAND logsift_core_tests)
+    add_test(NAME logsift_cli_help COMMAND logsift --help)
+    set_tests_properties(logsift_cli_help PROPERTIES PASS_REGULAR_EXPRESSION "USAGE")
+    add_test(NAME logsift_cli_msvc COMMAND logsift --cli
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/msvc.log" --json --profile msvc)
+    set_tests_properties(logsift_cli_msvc PROPERTIES PASS_REGULAR_EXPRESSION "C2143")
 endif()

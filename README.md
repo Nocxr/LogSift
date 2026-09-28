@@ -65,7 +65,7 @@ If the selected model accepts image input, the health check marks **OCR / VISION
 
 ## Build
 
-Requirements are fetched by CMake: SDL3, Dear ImGui, and nlohmann/json.
+CMake fetches SDL3, Dear ImGui, and nlohmann/json. HTTP requests use libcurl: CMake builds a static Schannel-backed copy on Windows and uses the system libcurl on macOS.
 
 ### Windows
 
@@ -83,7 +83,7 @@ cmake --build build
 open "build/Log Sift.app"
 ```
 
-The executable target is `logsift`. Bundled profiles are copied beside the executable and seeded into the user's editable profile directory on first run.
+Run `ctest --test-dir build --output-on-failure` after building for core, CLI, settings, and popup timer checks.\n\nThe executable target is `logsift`. Bundled profiles are copied beside the executable and seeded into the user's editable profile directory on first run.
 
 ## CLI
 

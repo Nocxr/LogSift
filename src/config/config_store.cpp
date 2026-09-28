@@ -1,9 +1,16 @@
 #include "config_store.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <utility>
 #include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -100,104 +107,148 @@ json ConfigToJson(const Config& cfg) {
     };
 }
 
-void LoadConfig(Config& cfg) {
-    std::error_code ec;
-    std::filesystem::create_directories(UserDataDir(), ec);
-    std::ifstream in(SettingsPath(), std::ios::binary);
+void LoadConfigFile(const std::filesystem::path& path, Config& cfg) {
+    std::ifstream in(path, std::ios::binary);
     if (!in) return;
+    Config loaded = cfg;
     try {
         json j; in >> j;
-        cfg.endpoint = j.value("endpoint", cfg.endpoint);
-        cfg.model = j.value("model", cfg.model);
-        cfg.apiKey = j.value("api_key", cfg.apiKey);
-        cfg.profileId = j.value("profile_id", cfg.profileId);
-        cfg.computeMode = j.value("compute_mode", cfg.computeMode);
-        cfg.showErrors = j.value("show_errors", cfg.showErrors);
-        cfg.showWarnings = j.value("show_warnings", cfg.showWarnings);
-        cfg.showContext = j.value("show_context", cfg.showContext);
-        cfg.showKnownNoise = j.value("show_known_noise", cfg.showKnownNoise);
-        cfg.showTimestamps = j.value("show_timestamps", cfg.showTimestamps);
-        cfg.groupDiagnostics = j.value("group_diagnostics", cfg.groupDiagnostics);
-        cfg.toastSeconds = j.value("toast_seconds", cfg.toastSeconds);
-        cfg.toastFps = j.value("toast_fps", cfg.toastFps);
-        cfg.toastSound = j.value("toast_sound", cfg.toastSound);
-        cfg.startSoundPreset = j.value("start_sound_preset", cfg.startSoundPreset);
-        cfg.endSoundPreset = j.value("end_sound_preset", cfg.endSoundPreset);
-        cfg.offlineSoundPreset = j.value("offline_sound_preset", cfg.offlineSoundPreset);
-        cfg.failureSoundPreset = j.value("failure_sound_preset", cfg.failureSoundPreset);
-        cfg.toastSoundFile = j.value("toast_sound_file", cfg.toastSoundFile);
-        cfg.toastShowType = j.value("toast_show_type", cfg.toastShowType);
-        cfg.toastShowBytes = j.value("toast_show_bytes", cfg.toastShowBytes);
-        cfg.toastShowTime = j.value("toast_show_time", cfg.toastShowTime);
-        cfg.toastShowCounts = j.value("toast_show_counts", cfg.toastShowCounts);
-        cfg.toastShowPreview = j.value("toast_show_preview", cfg.toastShowPreview);
+        loaded.endpoint = j.value("endpoint", loaded.endpoint);
+        loaded.model = j.value("model", loaded.model);
+        loaded.apiKey = j.value("api_key", loaded.apiKey);
+        loaded.profileId = j.value("profile_id", loaded.profileId);
+        loaded.computeMode = j.value("compute_mode", loaded.computeMode);
+        loaded.showErrors = j.value("show_errors", loaded.showErrors);
+        loaded.showWarnings = j.value("show_warnings", loaded.showWarnings);
+        loaded.showContext = j.value("show_context", loaded.showContext);
+        loaded.showKnownNoise = j.value("show_known_noise", loaded.showKnownNoise);
+        loaded.showTimestamps = j.value("show_timestamps", loaded.showTimestamps);
+        loaded.groupDiagnostics = j.value("group_diagnostics", loaded.groupDiagnostics);
+        loaded.toastSeconds = j.value("toast_seconds", loaded.toastSeconds);
+        loaded.toastFps = j.value("toast_fps", loaded.toastFps);
+        loaded.toastSound = j.value("toast_sound", loaded.toastSound);
+        loaded.startSoundPreset = j.value("start_sound_preset", loaded.startSoundPreset);
+        loaded.endSoundPreset = j.value("end_sound_preset", loaded.endSoundPreset);
+        loaded.offlineSoundPreset = j.value("offline_sound_preset", loaded.offlineSoundPreset);
+        loaded.failureSoundPreset = j.value("failure_sound_preset", loaded.failureSoundPreset);
+        loaded.toastSoundFile = j.value("toast_sound_file", loaded.toastSoundFile);
+        loaded.toastShowType = j.value("toast_show_type", loaded.toastShowType);
+        loaded.toastShowBytes = j.value("toast_show_bytes", loaded.toastShowBytes);
+        loaded.toastShowTime = j.value("toast_show_time", loaded.toastShowTime);
+        loaded.toastShowCounts = j.value("toast_show_counts", loaded.toastShowCounts);
+        loaded.toastShowPreview = j.value("toast_show_preview", loaded.toastShowPreview);
 
-        cfg.scanShowSource = j.value("popup_scan_show_source", cfg.toastShowType);
-        cfg.scanShowModel = j.value("popup_scan_show_model", true);
-        cfg.scanShowRoute = j.value("popup_scan_show_route", true);
-        cfg.scanShowProgress = j.value("popup_scan_show_progress", true);
-        cfg.scanShowPrefilterCounts = j.value("popup_scan_show_prefilter_counts", cfg.toastShowBytes);
-        cfg.scanShowEstimatedTokens = j.value("popup_scan_show_estimated_tokens", cfg.toastShowBytes);
-        cfg.scanShowBytesReduction = j.value("popup_scan_show_bytes_reduction", cfg.toastShowBytes);
-        cfg.scanShowElapsedTime = j.value("popup_scan_show_elapsed_time", cfg.toastShowTime);
+        loaded.scanShowSource = j.value("popup_scan_show_source", loaded.toastShowType);
+        loaded.scanShowModel = j.value("popup_scan_show_model", true);
+        loaded.scanShowRoute = j.value("popup_scan_show_route", true);
+        loaded.scanShowProgress = j.value("popup_scan_show_progress", true);
+        loaded.scanShowPrefilterCounts = j.value("popup_scan_show_prefilter_counts", loaded.toastShowBytes);
+        loaded.scanShowEstimatedTokens = j.value("popup_scan_show_estimated_tokens", loaded.toastShowBytes);
+        loaded.scanShowBytesReduction = j.value("popup_scan_show_bytes_reduction", loaded.toastShowBytes);
+        loaded.scanShowElapsedTime = j.value("popup_scan_show_elapsed_time", loaded.toastShowTime);
 
-        cfg.resultShowDiagnosticTotal = j.value("popup_result_show_diagnostic_total", true);
-        cfg.resultShowSource = j.value("popup_result_show_source", cfg.toastShowType);
-        cfg.resultShowModel = j.value("popup_result_show_model", true);
-        cfg.resultShowRoute = j.value("popup_result_show_route", true);
-        cfg.resultShowFallbackNotice = j.value("popup_result_show_fallback_notice", true);
-        cfg.resultShowPrefilterCounts = j.value("popup_result_show_prefilter_counts", cfg.toastShowBytes);
-        cfg.resultShowEstimatedTokens = j.value("popup_result_show_estimated_tokens", cfg.toastShowBytes);
-        cfg.resultShowRealTokens = j.value("popup_result_show_real_tokens", cfg.toastShowBytes);
-        cfg.resultShowTokenSpeed = j.value("popup_result_show_token_speed", true);
-        cfg.resultShowBytesReduction = j.value("popup_result_show_bytes_reduction", cfg.toastShowBytes);
-        cfg.resultShowTime = j.value("popup_result_show_time", cfg.toastShowTime);
-        cfg.resultShowAutoCopy = j.value("popup_result_show_auto_copy", true);
-        cfg.resultShowCounts = j.value("popup_result_show_counts", cfg.toastShowCounts);
-        cfg.resultShowPreview = j.value("popup_result_show_preview", cfg.toastShowPreview);
-        cfg.resultShowLifetimeBar = j.value("popup_result_show_lifetime_bar", true);
+        loaded.resultShowDiagnosticTotal = j.value("popup_result_show_diagnostic_total", true);
+        loaded.resultShowSource = j.value("popup_result_show_source", loaded.toastShowType);
+        loaded.resultShowModel = j.value("popup_result_show_model", true);
+        loaded.resultShowRoute = j.value("popup_result_show_route", true);
+        loaded.resultShowFallbackNotice = j.value("popup_result_show_fallback_notice", true);
+        loaded.resultShowPrefilterCounts = j.value("popup_result_show_prefilter_counts", loaded.toastShowBytes);
+        loaded.resultShowEstimatedTokens = j.value("popup_result_show_estimated_tokens", loaded.toastShowBytes);
+        loaded.resultShowRealTokens = j.value("popup_result_show_real_tokens", loaded.toastShowBytes);
+        loaded.resultShowTokenSpeed = j.value("popup_result_show_token_speed", true);
+        loaded.resultShowBytesReduction = j.value("popup_result_show_bytes_reduction", loaded.toastShowBytes);
+        loaded.resultShowTime = j.value("popup_result_show_time", loaded.toastShowTime);
+        loaded.resultShowAutoCopy = j.value("popup_result_show_auto_copy", true);
+        loaded.resultShowCounts = j.value("popup_result_show_counts", loaded.toastShowCounts);
+        loaded.resultShowPreview = j.value("popup_result_show_preview", loaded.toastShowPreview);
+        loaded.resultShowLifetimeBar = j.value("popup_result_show_lifetime_bar", true);
 
-        cfg.toastPreviewLines = std::clamp(j.value("toast_preview_lines", cfg.toastPreviewLines), 1, 10);
-        cfg.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard);
-        cfg.autoCopyResults = j.value("auto_copy_results", cfg.autoCopyResults);
-        cfg.watchClipboard = j.value("watch_clipboard", cfg.watchClipboard);
-        cfg.ocrEnabled = j.value("ocr_enabled", cfg.ocrEnabled);
-        cfg.autoScanImages = j.value("auto_scan_images", cfg.autoScanImages);
-        cfg.ocrPromptSeconds = std::clamp(
-            j.value("ocr_prompt_seconds", cfg.ocrPromptSeconds), 2.0f, 60.0f);
-        cfg.ocrPromptShowImageDetails =
-            j.value("ocr_prompt_show_image_details", cfg.ocrPromptShowImageDetails);
-        cfg.ocrPromptShowTimeoutBar =
-            j.value("ocr_prompt_show_timeout_bar", cfg.ocrPromptShowTimeoutBar);
-        cfg.recentLimit = std::clamp(
-            j.value("recent_limit", cfg.recentLimit), 1, 50);
-        cfg.preferFastPath = j.value("prefer_fast_path", cfg.preferFastPath);
+        loaded.toastPreviewLines = std::clamp(j.value("toast_preview_lines", loaded.toastPreviewLines), 1, 10);
+        loaded.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", loaded.toastAcknowledgeClipboard);
+        loaded.autoCopyResults = j.value("auto_copy_results", loaded.autoCopyResults);
+        loaded.watchClipboard = j.value("watch_clipboard", loaded.watchClipboard);
+        loaded.ocrEnabled = j.value("ocr_enabled", loaded.ocrEnabled);
+        loaded.autoScanImages = j.value("auto_scan_images", loaded.autoScanImages);
+        loaded.ocrPromptSeconds = std::clamp(
+            j.value("ocr_prompt_seconds", loaded.ocrPromptSeconds), 2.0f, 60.0f);
+        loaded.ocrPromptShowImageDetails =
+            j.value("ocr_prompt_show_image_details", loaded.ocrPromptShowImageDetails);
+        loaded.ocrPromptShowTimeoutBar =
+            j.value("ocr_prompt_show_timeout_bar", loaded.ocrPromptShowTimeoutBar);
+        loaded.recentLimit = std::clamp(
+            j.value("recent_limit", loaded.recentLimit), 1, 50);
+        loaded.preferFastPath = j.value("prefer_fast_path", loaded.preferFastPath);
 
         auto loadColor = [&](const char* key, float (&dst)[3]) {
             if (!j.contains(key) || !j[key].is_array() || j[key].size() < 3) return;
             for (int i = 0; i < 3; ++i) dst[i] = j[key][i].get<float>();
         };
-        loadColor("toast_bg", cfg.toastBg);
-        loadColor("toast_accent", cfg.toastAccent);
-    } catch (...) {
-        // A malformed settings file should never prevent Log Sift from starting.
+        loadColor("toast_bg", loaded.toastBg);
+        loadColor("toast_accent", loaded.toastAccent);
+        cfg = std::move(loaded);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "logsift: could not read %s: %s\n",
+                     path.string().c_str(), e.what());
     }
 }
 
-void SaveConfig(const Config& cfg) {
+void LoadConfig(Config& cfg) { LoadConfigFile(SettingsPath(), cfg); }
+
+void SaveConfigFile(const std::filesystem::path& target, const Config& cfg) {
     std::error_code ec;
-    std::filesystem::create_directories(UserDataDir(), ec);
-    std::ofstream out(SettingsPath(), std::ios::binary | std::ios::trunc);
-    if (out) {
-        out << ConfigToJson(cfg).dump(2) << '\n';
+    std::filesystem::create_directories(target.parent_path(), ec);
+    if (ec) {
+        std::fprintf(stderr, "logsift: could not create settings directory: %s\n",
+                     ec.message().c_str());
+        return;
+    }
+
+    // Write in the destination directory, then replace the old file. A failed
+    // write leaves the previous settings intact.
+    static std::atomic<unsigned long long> sequence{0};
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    std::filesystem::path temporary = target;
+    temporary += ".tmp-" + std::to_string(nonce) +
+        "-" + std::to_string(sequence.fetch_add(1));
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        if (!out || !(out << ConfigToJson(cfg).dump(2) << '\n') || !(out.flush())) {
+            std::fprintf(stderr, "logsift: could not write settings file\n");
+            std::filesystem::remove(temporary, ec);
+            return;
+        }
         out.close();
+        if (!out) {
+            std::fprintf(stderr, "logsift: could not close settings file\n");
+            std::filesystem::remove(temporary, ec);
+            return;
+        }
+    }
 #ifndef _WIN32
-        std::filesystem::permissions(SettingsPath(),
-            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-            std::filesystem::perm_options::replace, ec);
+    std::filesystem::permissions(temporary,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+        std::filesystem::perm_options::replace, ec);
+    if (ec) {
+        std::fprintf(stderr, "logsift: could not set settings permissions: %s\n",
+                     ec.message().c_str());
+        std::filesystem::remove(temporary, ec);
+        return;
+    }
+    std::filesystem::rename(temporary, target, ec);
+#else
+    if (!MoveFileExW(temporary.c_str(), target.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
 #endif
+    if (ec) {
+        std::fprintf(stderr, "logsift: could not replace settings file: %s\n",
+                     ec.message().c_str());
+        std::filesystem::remove(temporary, ec);
     }
 }
+
+void SaveConfig(const Config& cfg) { SaveConfigFile(SettingsPath(), cfg); }
+
 
 void SeedUserProfiles(const char* argv0) {
     const std::filesystem::path dest = UserDataDir() / "profiles";

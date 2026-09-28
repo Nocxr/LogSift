@@ -1,6 +1,13 @@
 // CLI argument parsing and CLI execution path.
 // Included by main.cpp; keep this module focused on this responsibility.
 
+struct CliDispatch {
+    bool handled = false;
+    int exitCode = 0;
+    bool backgroundMode = false;
+};
+
+CliDispatch RunCli(int argc, char** argv) {
     bool cliMode = false;
     bool cliJson = false;
     bool cliUseLlm = false;
@@ -29,11 +36,11 @@
 
         if (arg == "--help" || arg == "-h") {
             PrintCliHelp();
-            return 0;
+            return {true, 0, backgroundMode};
         }
         if (arg == "--version") {
             std::cout << "Log Sift " << LOGSIFT_VERSION << "\n";
-            return 0;
+            return {true, 0, backgroundMode};
         }
         if (arg == "--background") {
             backgroundMode = true;
@@ -76,32 +83,32 @@
         if (arg == "--file") {
             cliMode = true;
             cliFile = requireValue(i, arg);
-            if (cliFile.empty() && i >= argc - 1) return 2;
+            if (cliFile.empty() && i >= argc - 1) return {true, 2, backgroundMode};
             continue;
         }
         if (arg == "--image") {
             cliMode = true;
             cliUseLlm = true;
             cliImage = requireValue(i, arg);
-            if (cliImage.empty() && i >= argc - 1) return 2;
+            if (cliImage.empty() && i >= argc - 1) return {true, 2, backgroundMode};
             continue;
         }
         if (arg == "--profile") {
             cliMode = true;
             cliProfile = requireValue(i, arg);
-            if (cliProfile.empty() && i >= argc - 1) return 2;
+            if (cliProfile.empty() && i >= argc - 1) return {true, 2, backgroundMode};
             continue;
         }
         if (arg == "--endpoint") {
             cliMode = true;
             cliEndpoint = requireValue(i, arg);
-            if (cliEndpoint.empty() && i >= argc - 1) return 2;
+            if (cliEndpoint.empty() && i >= argc - 1) return {true, 2, backgroundMode};
             continue;
         }
         if (arg == "--model") {
             cliMode = true;
             cliModel = requireValue(i, arg);
-            if (cliModel.empty() && i >= argc - 1) return 2;
+            if (cliModel.empty() && i >= argc - 1) return {true, 2, backgroundMode};
             continue;
         }
         if (!arg.empty() && arg[0] == '-') {
@@ -109,20 +116,20 @@
                 cliMode = true;
                 if (!cliFile.empty()) {
                     std::cerr << "logsift: multiple input files specified\n";
-                    return 2;
+                    return {true, 2, backgroundMode};
                 }
                 cliFile = "-";
                 continue;
             }
             std::cerr << "logsift: unknown option '" << arg << "'\n"
                       << "Try 'logsift --help'.\n";
-            return 2;
+            return {true, 2, backgroundMode};
         }
 
         cliMode = true;
         if (!cliFile.empty()) {
             std::cerr << "logsift: multiple input files specified\n";
-            return 2;
+            return {true, 2, backgroundMode};
         }
         cliFile = arg;
     }
@@ -133,19 +140,19 @@
         std::cout << "auto\tAutomatic detection\n";
         for (const auto& profile : gProfiles)
             std::cout << profile.id << "\t" << profile.name << "\n";
-        return 0;
+        return {true, 0, backgroundMode};
     }
 
     if (cliMode) {
         if (!cliImage.empty() && !cliFile.empty()) {
             std::cerr << "logsift: --image cannot be combined with --file or a positional log file\n";
-            return 2;
+            return {true, 2, backgroundMode};
         }
 
         if (cliProfile != "auto" && !FindProfile(cliProfile)) {
             std::cerr << "logsift: unknown profile '" << cliProfile << "'\n"
                       << "Use --list-profiles to see installed profile IDs.\n";
-            return 2;
+            return {true, 2, backgroundMode};
         }
 
         Config cliCfg;
@@ -174,7 +181,7 @@
                               ? "unsupported image; use PNG, JPG, or JPEG"
                               : imageStatus)
                           << "\n";
-                return 2;
+                return {true, 2, backgroundMode};
             }
 
             try {
@@ -183,13 +190,13 @@
             } catch (const std::exception& e) {
                 std::cerr << "logsift: OCR/model request failed: "
                           << e.what() << "\n";
-                return 3;
+                return {true, 3, backgroundMode};
             }
 
             if (modelResult.visionFailure) {
                 std::cerr << "logsift: OCR/model request failed: "
                           << modelResult.note << "\n";
-                return 3;
+                return {true, 3, backgroundMode};
             }
 
             source = modelResult.sourceText;
@@ -214,7 +221,7 @@
                 if (!in) {
                     std::cerr << "logsift: cannot open "
                               << cliFile << "\n";
-                    return 2;
+                    return {true, 2, backgroundMode};
                 }
                 ss << in.rdbuf();
             } else {
@@ -223,7 +230,7 @@
             source = ss.str();
             if (source.empty()) {
                 std::cerr << "logsift: empty input\n";
-                return 2;
+                return {true, 2, backgroundMode};
             }
 
             const std::string filtered = PreFilter(source, cliCfg);
@@ -350,6 +357,8 @@
         }
 
         if (!modelError.empty())
-            return 3;
-        return hasDiagnostics ? 0 : 1;
+            return {true, 3, backgroundMode};
+        return {true, hasDiagnostics ? 0 : 1, backgroundMode};
     }
+    return {false, 0, backgroundMode};
+}

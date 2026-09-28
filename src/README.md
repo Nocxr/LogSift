@@ -1,6 +1,6 @@
 # Log Sift source layout
 
-Log Sift's release-polish implementation used to live in a single ~6,400-line `main.cpp`. The source is now split by responsibility while preserving the exact runtime/control-flow behavior of that release snapshot.
+Log Sift's release-polish implementation used to live in a single ~6,400-line `main.cpp`. The source is now split by responsibility with application state owned explicitly and several services compiled independently.
 
 ## Layout
 
@@ -17,6 +17,6 @@ Log Sift's release-polish implementation used to live in a single ~6,400-line `m
 
 ## Implementation note
 
-The release-polish UI/event loop has a large amount of deliberately shared local runtime state. The processing helpers in `core/process.cpp` and settings persistence in `config/config_store.cpp` compile independently. Their headers declare the shared interfaces, with configuration data in `config/config_types.h`. The UI and event-loop files are still lexical fragments included by the composition root because they share local runtime state. CMake lists those fragments as HEADER_FILE_ONLY so IDEs show the layout without compiling them twice.
+The release-polish UI/event loop has a large amount of deliberately shared local runtime state. The processing helpers in `core/process.cpp` and settings persistence in `config/config_store.cpp` compile independently. Their headers declare the shared interfaces, with configuration data in `config/config_types.h`. Desktop runtime values now live in `app/state.inl` as `AppState`. The UI and event-loop files still bind references to that state and are included by the composition root; they have not yet become independent translation units. CMake lists those fragments as HEADER_FILE_ONLY so IDEs show the layout without compiling them twice.
 
-The next architectural pass should introduce explicit app state, then move the CLI, model, profiles, and UI sections into independent translation units.
+The CLI dispatch is a dedicated function. The HTTP client, popup timer, processing helpers, and settings persistence compile independently. The remaining architectural step is to pass `AppState` to event/UI handlers directly and move the lexical UI fragments into independent translation units.

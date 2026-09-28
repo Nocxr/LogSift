@@ -4,6 +4,8 @@
 #include <imgui_impl_sdlrenderer3.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <nlohmann/json.hpp>
+#include "src/model/http.h"
+#include "src/ui/popup_timer.h"
 #include "src/config/config_types.h"
 #include "src/config/config_store.h"
 #include "src/core/process.h"
@@ -78,13 +80,17 @@ using json = nlohmann::json;
 #include "src/model/vision.inl"
 #include "src/io/input.inl"
 #include "src/ui/widgets.inl"
+#include "src/app/state.inl"
 
 }
 
 #include "src/cli/help.inl"
+#include "src/cli/run.inl"
 
 int main(int argc, char** argv) {
-#include "src/cli/run.inl"
+    const CliDispatch cli = RunCli(argc, argv);
+    if (cli.handled) return cli.exitCode;
+    const bool backgroundMode = cli.backgroundMode;
 #include "src/app/setup.inl"
 #include "src/app/events_tray_watch.inl"
 #include "src/app/events_sdl_async.inl"

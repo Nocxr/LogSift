@@ -69,7 +69,8 @@
         ImGui::SetCurrentContext(mainContext);
     }
 
-    Config cfg;
+    AppState app;
+    auto& cfg = app.cfg;
     LoadConfig(cfg);
     if (!std::filesystem::exists(SettingsPath())) SaveConfig(cfg);
 #ifdef _WIN32
@@ -87,76 +88,91 @@
 #else
     bool startAtLogin = false;
 #endif
-    std::string lastSavedConfig = ConfigToJson(cfg).dump();
-
-    std::string input, output, questionableOutput, prompt = kDefaultPrompt,
-        status = "Paste text or drop a log/image file.";
-    std::string appLog;
-    CopyFlashState copyFlash;
+    app.lastSavedConfig = ConfigToJson(cfg).dump();
+    app.recentRuns = LoadRecentRuns(cfg.recentLimit);
+    app.recentCursor = app.recentRuns.empty() ? -1 : 0;
+    app.selectedRecent = app.recentCursor;
+#ifdef __APPLE__
+    app.lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
+#endif
+    auto& lastSavedConfig = app.lastSavedConfig;
+    auto& input = app.input;
+    auto& output = app.output;
+    auto& questionableOutput = app.questionableOutput;
+    auto& prompt = app.prompt;
+    auto& status = app.status;
+    auto& appLog = app.appLog;
+    auto& copyFlash = app.copyFlash;
+    auto& showAppLog = app.showAppLog;
+    auto& lastClipboardText = app.lastClipboardText;
+    auto& inputSourceKind = app.inputSourceKind;
+#ifdef _WIN32
+    auto& lastClipboardSequence = app.lastClipboardSequence;
+#endif
+#ifdef __APPLE__
+    auto& lastMacClipboardChangeCount = app.lastMacClipboardChangeCount;
+#endif
+    auto& toastText = app.toastText;
+    auto& toastUntil = app.toastUntil;
+    auto& toastProcessing = app.toastProcessing;
+    auto& toastSoundPlayed = app.toastSoundPlayed;
+    auto& toastAutoCopied = app.toastAutoCopied;
+    auto& toastStatsExpanded = app.toastStatsExpanded;
+    auto& toastOcrStatsExpanded = app.toastOcrStatsExpanded;
+    auto& toastPreviewExpanded = app.toastPreviewExpanded;
+    auto& toastTimerPaused = app.popupTimer.paused;
+    auto& toastMouseWasOver = app.popupTimer.mouseWasOver;
+    auto& toastResumeRequested = app.popupTimer.resumeRequested;
+    auto& toastPausedRemaining = app.popupTimer.pausedRemaining;
+    auto& toastMouseLeftAt = app.popupTimer.mouseLeftAt;
+    auto& toastPauseToastShownAt = app.popupTimer.lastShownAt;
+    auto& toastOutcome = app.toastOutcome;
+    auto& toastShownAt = app.toastShownAt;
+    auto& request = app.request;
+    auto& activeProgress = app.activeProgress;
+    auto& requestGeneration = app.requestGeneration;
+    auto& activeRequestGeneration = app.activeRequestGeneration;
+    auto& healthRequest = app.healthRequest;
+    auto& benchmarkRequest = app.benchmarkRequest;
+    auto& modelListRequest = app.modelListRequest;
+    auto& computeRequest = app.computeRequest;
+    auto& busy = app.busy;
+    auto& checkingHealth = app.checkingHealth;
+    auto& benchmarking = app.benchmarking;
+    auto& loadingModels = app.loadingModels;
+    auto& applyingCompute = app.applyingCompute;
+    auto& running = app.running;
+    auto& availableModels = app.availableModels;
+    auto& computeStatus = app.computeStatus;
+    auto& stats = app.stats;
+    auto& pendingOcrImage = app.pendingOcrImage;
+    auto& pendingOcrImageReady = app.pendingOcrImageReady;
+    auto& lastInputBytes = app.lastInputBytes;
+    auto& lastFilteredBytes = app.lastFilteredBytes;
+    auto& recentRuns = app.recentRuns;
+    auto& recentCursor = app.recentCursor;
+    auto& selectedRecent = app.selectedRecent;
+    auto& connectionStage = app.connectionStage;
+    auto& health = app.health;
+    auto& visionSupportKnown = app.visionSupportKnown;
+    auto& visionSupported = app.visionSupported;
+    auto& visionStatus = app.visionStatus;
+    auto& benchmarkStatus = app.benchmarkStatus;
+    auto& startupConnectionSequence = app.startupConnectionSequence;
+    auto& warnOnHealthFailure = app.warnOnHealthFailure;
+    auto& requestStarted = app.requestStarted;
+    auto& lastResponseSeconds = app.lastResponseSeconds;
+    auto& lastClipboardCheck = app.lastClipboardCheck;
     AppendActivityLog(appLog, "INFO", "Log Sift started.");
     AppendActivityLog(appLog, "CONFIG", "Endpoint: " + cfg.endpoint + " | Model: " + cfg.model);
     AppendActivityLog(appLog, "CONFIG", std::string("Clipboard watch: ") + (cfg.watchClipboard ? "on" : "off"));
     AppendActivityLog(appLog, "CONFIG", std::string("OCR: ") + (cfg.ocrEnabled ? "on" : "off"));
-    bool showAppLog = false;
-    std::string lastClipboardText;
-    std::string inputSourceKind = "Manual";
-#ifdef _WIN32
-    DWORD lastClipboardSequence = 0;
-#endif
     auto markOwnClipboardWrite = [&]() {
 #ifdef _WIN32
         lastClipboardSequence = GetClipboardSequenceNumber();
         gClipboardUpdatePending = false;
 #endif
     };
-    std::string toastText;
-    std::chrono::steady_clock::time_point toastUntil{};
-    bool toastProcessing = false;
-    bool toastSoundPlayed = false;
-    bool toastAutoCopied = false;
-    bool toastStatsExpanded = true;
-    bool toastOcrStatsExpanded = true;
-    bool toastPreviewExpanded = true;
-
-    bool toastTimerPaused = false;
-    bool toastMouseWasOver = false;
-    bool toastResumeRequested = false;
-    std::chrono::steady_clock::duration toastPausedRemaining{};
-    std::chrono::steady_clock::time_point toastMouseLeftAt{};
-    std::chrono::steady_clock::time_point toastPauseToastShownAt{};
-
-    enum class ToastOutcome {
-        Processing,
-        OcrPrompt,
-        Success,
-        Empty,
-        OfflineFallback,
-        ModelFallback,
-        Cancelled,
-        Failure
-    };
-    ToastOutcome toastOutcome = ToastOutcome::Processing;
-    std::chrono::steady_clock::time_point toastShownAt{};
-    std::future<SiftResult> request;
-    std::shared_ptr<SiftProgress> activeProgress;
-    unsigned long long requestGeneration = 0;
-    unsigned long long activeRequestGeneration = 0;
-    std::future<ModelHealthResult> healthRequest;
-    std::future<std::string> benchmarkRequest;
-    std::future<std::vector<std::string>> modelListRequest;
-    std::future<std::string> computeRequest;
-    bool busy = false, checkingHealth = false, benchmarking = false, loadingModels = false, applyingCompute = false, running = true;
-    std::vector<std::string> availableModels;
-    std::string computeStatus = "Auto";
-    RunStats stats;
-    ClipboardImage pendingOcrImage;
-    bool pendingOcrImageReady = false;
-    size_t lastInputBytes = 0, lastFilteredBytes = 0;
-
-    std::vector<RecentRun> recentRuns = LoadRecentRuns(cfg.recentLimit);
-    int recentCursor = recentRuns.empty() ? -1 : 0;
-    int selectedRecent = recentRuns.empty() ? -1 : 0;
-
     auto applyRecentRun = [&](int index) {
         if (recentRuns.empty()) return;
         index = std::clamp(index, 0, static_cast<int>(recentRuns.size()) - 1);
@@ -241,30 +257,6 @@
         selectedRecent = 0;
         SaveRecentRuns(recentRuns);
     };
-
-    enum class ConnectionStage {
-        Checking,
-        LoadingModels,
-        Benchmarking,
-        Ready,
-        Unreachable,
-        ModelsFailed,
-        BenchmarkFailed
-    };
-    ConnectionStage connectionStage = ConnectionStage::Checking;
-    std::string health = "Checking model...";
-    bool visionSupportKnown = false;
-    bool visionSupported = false;
-    std::string visionStatus = "Not checked";
-    std::string benchmarkStatus = "Waiting for model check...";
-    bool startupConnectionSequence = true;
-    bool warnOnHealthFailure = false;
-    std::chrono::steady_clock::time_point requestStarted{};
-    double lastResponseSeconds = 0.0;
-    auto lastClipboardCheck = std::chrono::steady_clock::now(); // non-Windows fallback only
-#ifdef __APPLE__
-    long long lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
-#endif
 
     auto cancelActiveSift = [&](const char* source) {
         const bool active =

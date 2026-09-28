@@ -12,10 +12,7 @@ std::string ModelsEndpoint(const std::string& endpoint) {
 
 std::vector<std::string> ListModels(const Config& cfg) {
     std::vector<std::string> models;
-    std::string cmd = "curl -sS --fail-with-body --max-time 3 " + ShellQuote(ModelsEndpoint(cfg.endpoint));
-    if (!cfg.apiKey.empty()) cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
-    cmd += " 2>&1";
-    const json response = json::parse(ReadPipe(cmd));
+    const json response = json::parse(HttpGet(ModelsEndpoint(cfg.endpoint), cfg.apiKey, 3));
     if (response.contains("data") && response["data"].is_array()) {
         for (const auto& item : response["data"]) {
             const std::string id = item.value("id", "");
@@ -27,6 +24,12 @@ std::vector<std::string> ListModels(const Config& cfg) {
 
 std::string ApplyComputeMode(const Config& cfg) {
     if (cfg.computeMode == 0) return "Auto - existing LM Studio load configuration";
+    if (cfg.model.empty() || !std::all_of(cfg.model.begin(), cfg.model.end(), [](char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                   (c >= '0' && c <= '9') || c == '/' || c == '.' ||
+                   c == '_' || c == '-' || c == ':';
+        }))
+        throw std::runtime_error("Model ID has unsupported characters for the local lms command.");
     const std::string gpu = cfg.computeMode == 1 ? "max" : "off";
     try { ReadPipe("lms unload " + ShellQuote(cfg.model) + " 2>&1"); } catch (...) {}
     ReadPipe("lms load " + ShellQuote(cfg.model) + " --gpu " + gpu + " 2>&1");
@@ -45,10 +48,7 @@ struct ModelHealthResult {
 ModelHealthResult CheckModel(const Config& cfg) {
     ModelHealthResult result;
 
-    std::string cmd = "curl -sS --fail-with-body --max-time 3 " + ShellQuote(ModelsEndpoint(cfg.endpoint));
-    if (!cfg.apiKey.empty()) cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
-    cmd += " 2>&1";
-    const json response = json::parse(ReadPipe(cmd));
+    const json response = json::parse(HttpGet(ModelsEndpoint(cfg.endpoint), cfg.apiKey, 3));
     result.online = true;
 
     if (!response.contains("data") || !response["data"].is_array()) {
@@ -88,21 +88,8 @@ ModelHealthResult CheckModel(const Config& cfg) {
         {"max_tokens", 8}
     };
 
-    const auto temp = std::filesystem::temp_directory_path() /
-        ("logsift-vision-probe-" + std::to_string(SDL_GetTicks()) + ".json");
-    {
-        std::ofstream out(temp, std::ios::binary);
-        out << probeBody.dump();
-    }
-
-    std::string probeCmd = "curl -sS --fail-with-body --max-time 20 -X POST " +
-        ShellQuote(cfg.endpoint) + " -H " + ShellQuote("Content-Type: application/json");
-    if (!cfg.apiKey.empty())
-        probeCmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
-    probeCmd += " --data-binary @" + ShellQuote(temp.string()) + " 2>&1";
-
     try {
-        const json probeResponse = json::parse(ReadPipe(probeCmd));
+        const json probeResponse = json::parse(HttpPostJson(cfg.endpoint, cfg.apiKey, probeBody.dump(), 20));
         result.visionChecked = true;
         result.visionSupported =
             !probeResponse.contains("error") &&
@@ -122,8 +109,6 @@ ModelHealthResult CheckModel(const Config& cfg) {
             : "vision probe could not reach the endpoint";
     }
 
-    std::error_code ec;
-    std::filesystem::remove(temp, ec);
     return result;
 }
 
@@ -138,19 +123,7 @@ std::string SendRaw(const Config& cfg, const std::string& userText, const std::s
         {"max_tokens", 1024}
     };
 
-    const auto temp = std::filesystem::temp_directory_path() /
-        ("logsift-" + std::to_string(SDL_GetTicks()) + ".json");
-    { std::ofstream f(temp, std::ios::binary); f << body.dump(); }
-
-    std::string cmd = "curl -sS --fail-with-body --max-time 120 -X POST " +
-        ShellQuote(cfg.endpoint) + " -H " + ShellQuote("Content-Type: application/json");
-    if (!cfg.apiKey.empty()) cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
-    cmd += " --data-binary @" + ShellQuote(temp.string()) + " 2>&1";
-    std::string raw;
-    try { raw = ReadPipe(cmd); }
-    catch (...) { std::error_code ec; std::filesystem::remove(temp, ec); throw; }
-    std::error_code ec; std::filesystem::remove(temp, ec);
-    return raw;
+    return HttpPostJson(cfg.endpoint, cfg.apiKey, body.dump(), 120);
 }
 
 std::string Benchmark(const Config& cfg) {
