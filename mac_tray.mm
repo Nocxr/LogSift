@@ -123,3 +123,7 @@ extern "C" void LogSiftMacTraySetWatch(bool enabled) {
         gWatchItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
     }
 }
+
+extern "C" long long LogSiftMacClipboardChangeCount(void) {
+    return (long long)[[NSPasteboard generalPasteboard] changeCount];
+}
