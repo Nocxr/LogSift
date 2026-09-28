@@ -1629,7 +1629,7 @@ int main(int argc, char** argv) {
                 } else if (parseable && !filtered.empty()) {
                     input = clip;
                     const DiagnosticSplit split = LooksLikeUnrealLog(input) && (cfg.profileId=="auto" || cfg.profileId=="unreal") ? SplitUnrealDiagnostics(input, cfg) : SplitWithProfile(input, cfg);
-                    questionableOutput = split.questionable;
+                    questionableOutput = ApplyOutputPreferences(split.questionable, cfg);
                     const std::string previewFiltered = !split.included.empty() ? split.included : filtered;
                     lastInputBytes = input.size();
                     lastFilteredBytes = previewFiltered.size();
@@ -1647,7 +1647,7 @@ int main(int argc, char** argv) {
                     toastUntil = now + std::chrono::hours(1);
                     if (cfg.toastSound) PlaySynthPreset(cfg.startSoundPreset, true);
                     if (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
-                        output = FastStructuredResult(previewFiltered);
+                        output = ApplyOutputPreferences(FastStructuredResult(previewFiltered), cfg);
                         stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - requestStarted).count();
                         const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                         if (autoCopied) markOwnClipboardWrite();
@@ -1726,7 +1726,7 @@ int main(int argc, char** argv) {
             } else {
                 try {
                     const SiftResult result = request.get();
-                    output = result.text;
+                    output = ApplyOutputPreferences(result.text, cfg);
                     stats.promptTokens = result.promptTokens;
                     stats.completionTokens = result.completionTokens;
                     stats.promptTokensPerSecond = result.promptTokensPerSecond;
@@ -1748,13 +1748,14 @@ int main(int argc, char** argv) {
                         LooksLikeUnrealLog(input) && (cfg.profileId == "auto" || cfg.profileId == "unreal")
                             ? SplitUnrealDiagnostics(input, cfg)
                             : SplitWithProfile(input, cfg);
-                    questionableOutput = fallbackSplit.questionable;
+                    questionableOutput = ApplyOutputPreferences(fallbackSplit.questionable, cfg);
                     const std::string prefiltered = PreFilter(input, cfg);
                     const std::string fallbackCandidate =
                         !fallbackSplit.included.empty() ? fallbackSplit.included : prefiltered;
-                    output = LooksLikeStructuredBuildDiagnostics(fallbackCandidate)
-                        ? FastStructuredResult(fallbackCandidate)
-                        : DedupeLines(fallbackCandidate);
+                    output = ApplyOutputPreferences(
+                        LooksLikeStructuredBuildDiagnostics(fallbackCandidate)
+                            ? FastStructuredResult(fallbackCandidate)
+                            : DedupeLines(fallbackCandidate), cfg);
                     stats.filteredBytes = fallbackCandidate.size();
                     stats.route = "Offline fallback";
                     stats.promptTokens = 0;
@@ -1960,7 +1961,7 @@ int main(int argc, char** argv) {
             const std::string capturedInput = input;
             const std::string capturedPrompt = prompt;
             const DiagnosticSplit split = LooksLikeUnrealLog(input) && (cfg.profileId=="auto" || cfg.profileId=="unreal") ? SplitUnrealDiagnostics(input, cfg) : SplitWithProfile(input, cfg);
-            questionableOutput = split.questionable;
+            questionableOutput = ApplyOutputPreferences(split.questionable, cfg);
             const std::string previewFiltered = !split.included.empty() ? split.included : PreFilter(input, cfg);
             lastInputBytes = input.size();
             lastFilteredBytes = previewFiltered.size();
@@ -1977,7 +1978,7 @@ int main(int argc, char** argv) {
             requestStarted = std::chrono::steady_clock::now();
             lastResponseSeconds = 0.0;
             if (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
-                output = FastStructuredResult(previewFiltered);
+                output = ApplyOutputPreferences(FastStructuredResult(previewFiltered), cfg);
                 lastResponseSeconds = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - requestStarted).count();
                 stats.seconds = lastResponseSeconds;
