@@ -219,6 +219,7 @@ json ConfigToJson(const Config& cfg) {
     return json{
         {"endpoint", cfg.endpoint},
         {"model", cfg.model},
+        {"api_key", cfg.apiKey},
         {"profile_id", cfg.profileId},
         {"compute_mode", cfg.computeMode},
         {"show_errors", cfg.showErrors},
@@ -258,6 +259,7 @@ void LoadConfig(Config& cfg) {
         json j; in >> j;
         cfg.endpoint = j.value("endpoint", cfg.endpoint);
         cfg.model = j.value("model", cfg.model);
+        cfg.apiKey = j.value("api_key", cfg.apiKey);
         cfg.profileId = j.value("profile_id", cfg.profileId);
         cfg.computeMode = j.value("compute_mode", cfg.computeMode);
         cfg.showErrors = j.value("show_errors", cfg.showErrors);
@@ -299,7 +301,15 @@ void SaveConfig(const Config& cfg) {
     std::error_code ec;
     std::filesystem::create_directories(UserDataDir(), ec);
     std::ofstream out(SettingsPath(), std::ios::binary | std::ios::trunc);
-    if (out) out << ConfigToJson(cfg).dump(2) << '\n';
+    if (out) {
+        out << ConfigToJson(cfg).dump(2) << '\n';
+        out.close();
+#ifndef _WIN32
+        std::filesystem::permissions(SettingsPath(),
+            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+            std::filesystem::perm_options::replace, ec);
+#endif
+    }
 }
 
 void SeedUserProfiles(const char* argv0) {
