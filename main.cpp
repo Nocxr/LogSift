@@ -2736,8 +2736,13 @@ int main(int argc, char** argv) {
                     ImGuiWindowFlags_NoSavedSettings);
                 const size_t entries = DiagnosticEntries(output).size();
                 const size_t questionable = DiagnosticEntries(questionableOutput).size();
-                const char* outcomeLabel = toastProcessing ? "LOG SIFT - SCANNING" :
-                    toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
+                const bool chunkingNow =
+                    toastProcessing && activeProgress && activeProgress->chunking.load();
+                if (chunkingNow)
+                    outcomeColor = ImVec4(0.96f, 0.60f, 0.20f, 1.0f);
+                const char* outcomeLabel = toastProcessing
+                    ? (chunkingNow ? "LOG SIFT - CHUNKING LARGE LOG" : "LOG SIFT - SCANNING")
+                    : toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
                     toastOutcome == ToastOutcome::OfflineFallback ? "LOG SIFT - OFFLINE FALLBACK" :
                     toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL FALLBACK" :
@@ -2745,12 +2750,28 @@ int main(int argc, char** argv) {
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
                 ImGui::SameLine();
                 if (toastProcessing) {
-                    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - requestStarted).count();
-                    ImGui::Text("Sifting %s...", stats.logType.c_str());
-                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
-                    ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), {-1, 5}, "");
-                    ImGui::PopStyleColor();
-                    ImGui::TextDisabled("Prefiltered %zu -> %zu bytes  |  %.1f s elapsed", stats.inputBytes, stats.filteredBytes, elapsed);
+                    const double elapsed = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - requestStarted).count();
+                    if (chunkingNow) {
+                        const int done = activeProgress->completed.load();
+                        const int total = std::max(1, activeProgress->total.load());
+                        ImGui::Text("Large %s log - chunk %d / %d", stats.logType.c_str(),
+                            std::min(done + 1, total), total);
+                        ImGui::TextColored(outcomeColor,
+                            "Chunking is in effect; large logs may take longer.");
+                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                        ImGui::ProgressBar(
+                            std::clamp(static_cast<float>(done) / static_cast<float>(total), 0.0f, 1.0f),
+                            {-1, 5}, "");
+                        ImGui::PopStyleColor();
+                    } else {
+                        ImGui::Text("Sifting %s...", stats.logType.c_str());
+                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                        ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), {-1, 5}, "");
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::TextDisabled("Prefiltered %zu -> %zu bytes  |  %.1f s elapsed",
+                        stats.inputBytes, stats.filteredBytes, elapsed);
                 } else {
                     ImGui::Text("%zu diagnostic%s", entries, entries == 1 ? "" : "s");
                     if (toastOutcome == ToastOutcome::OfflineFallback) {
