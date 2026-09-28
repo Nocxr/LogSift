@@ -1,0 +1,26 @@
+{
+  "id": "crash-stack",
+  "name": "Crash / Stack Trace",
+  "detect": [
+    "Unhandled Exception",
+    "Stack trace",
+    "stacktrace",
+    "SIGSEGV",
+    "segmentation fault"
+  ],
+  "high_priority": [
+    "Unhandled Exception",
+    "SIGSEGV",
+    "segmentation fault",
+    "panic",
+    "fatal"
+  ],
+  "warnings": [
+    "exception"
+  ],
+  "questionable": [
+    "stack trace",
+    "Stack trace"
+  ],
+  "noise": []
+}
