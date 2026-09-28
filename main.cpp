@@ -2153,6 +2153,7 @@ int main(int argc, char** argv) {
             if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_GRAVE && !ImGui::GetIO().WantTextInput) showAppLog = !showAppLog;
             if (event.type == SDL_EVENT_DROP_FILE) {
                 if (LoadFile(event.drop.data, input, status)) {
+                    AppendActivityLog(appLog, "FILE", status);
                     output.clear();
                     questionableOutput.clear();
                     lastInputBytes = lastFilteredBytes = 0;
@@ -2351,13 +2352,19 @@ int main(int argc, char** argv) {
                     [capturedCfg] { return Benchmark(capturedCfg); });
             } else {
                 connectionStage = ConnectionStage::Ready;
+                AppendActivityLog(appLog, "MODELS",
+                    "Model refresh complete: " + std::to_string(availableModels.size()) + " model(s) available.");
             }
         }
 
         if (applyingCompute && computeRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            try { computeStatus = computeRequest.get(); }
+            try {
+                computeStatus = computeRequest.get();
+                AppendActivityLog(appLog, "COMPUTE", computeStatus);
+            }
             catch (const std::exception& e) {
                 computeStatus = std::string("Compute change failed: ") + e.what();
+                AppendActivityLog(appLog, "COMPUTE-FAIL", computeStatus);
             }
             applyingCompute = false;
         }
