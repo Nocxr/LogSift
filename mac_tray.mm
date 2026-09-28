@@ -3,6 +3,7 @@
 static bool gOpen = false;
 static bool gToggleWatch = false;
 static bool gToggleAutoCopy = false;
+static bool gToggleSound = false;
 static bool gOpenLog = false;
 static bool gCopy = false;
 static bool gQuit = false;
@@ -10,11 +11,13 @@ static bool gQuit = false;
 static NSStatusItem* gItem = nil;
 static NSMenuItem* gWatchItem = nil;
 static NSMenuItem* gAutoCopyItem = nil;
+static NSMenuItem* gSoundItem = nil;
 
 @interface LogSiftStatusTarget : NSObject
 - (void)openApp:(id)sender;
 - (void)toggleWatch:(id)sender;
 - (void)toggleAutoCopy:(id)sender;
+- (void)toggleSound:(id)sender;
 - (void)openLog:(id)sender;
 - (void)copyResults:(id)sender;
 - (void)quitApp:(id)sender;
@@ -25,6 +28,7 @@ static NSMenuItem* gAutoCopyItem = nil;
 - (void)openApp:(id)sender { (void)sender; gOpen = true; }
 - (void)toggleWatch:(id)sender { (void)sender; gToggleWatch = true; }
 - (void)toggleAutoCopy:(id)sender { (void)sender; gToggleAutoCopy = true; }
+- (void)toggleSound:(id)sender { (void)sender; gToggleSound = true; }
 - (void)openLog:(id)sender { (void)sender; gOpenLog = true; }
 - (void)copyResults:(id)sender { (void)sender; gCopy = true; }
 - (void)quitApp:(id)sender { (void)sender; gQuit = true; }
@@ -97,6 +101,13 @@ extern "C" void LogSiftMacTrayInit(void) {
         gAutoCopyItem.state = NSControlStateValueOff;
         [menu addItem:gAutoCopyItem];
 
+        gSoundItem = [[NSMenuItem alloc] initWithTitle:@"Sound"
+                                               action:@selector(toggleSound:)
+                                        keyEquivalent:@""];
+        gSoundItem.target = gTarget;
+        gSoundItem.state = NSControlStateValueOn;
+        [menu addItem:gSoundItem];
+
         NSMenuItem* openLog = [[NSMenuItem alloc] initWithTitle:@"Open Log"
                                                         action:@selector(openLog:)
                                                  keyEquivalent:@""];
@@ -133,6 +144,12 @@ extern "C" bool LogSiftMacTrayTakeToggleAutoCopy(void) {
     return value;
 }
 
+extern "C" bool LogSiftMacTrayTakeToggleSound(void) {
+    const bool value = gToggleSound;
+    gToggleSound = false;
+    return value;
+}
+
 extern "C" bool LogSiftMacTrayTakeOpenLog(void) {
     const bool value = gOpenLog;
     gOpenLog = false;
@@ -160,6 +177,12 @@ extern "C" void LogSiftMacTraySetWatch(bool enabled) {
 extern "C" void LogSiftMacTraySetAutoCopy(bool enabled) {
     if (gAutoCopyItem) {
         gAutoCopyItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+}
+
+extern "C" void LogSiftMacTraySetSound(bool enabled) {
+    if (gSoundItem) {
+        gSoundItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
     }
 }
 
