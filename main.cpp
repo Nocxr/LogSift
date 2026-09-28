@@ -646,7 +646,7 @@ std::string SendRaw(const Config& cfg, const std::string& userText, const std::s
     };
 
     const auto temp = std::filesystem::temp_directory_path() /
-        ("nex-log-sift-" + std::to_string(SDL_GetTicks()) + ".json");
+        ("logsift-" + std::to_string(SDL_GetTicks()) + ".json");
     { std::ofstream f(temp, std::ios::binary); f << body.dump(); }
 
     std::string cmd = "curl -sS --fail-with-body --max-time 120 -X POST " +
@@ -751,7 +751,7 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
     };
 
     const auto temp = std::filesystem::temp_directory_path() /
-        ("nex-log-sift-" + std::to_string(SDL_GetTicks()) + ".json");
+        ("logsift-" + std::to_string(SDL_GetTicks()) + ".json");
     {
         std::ofstream f(temp, std::ios::binary);
         f << body.dump();
@@ -981,7 +981,7 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
 }
 
 int main(int argc, char** argv) {
-    // Headless CLI: nex-log-sift --cli [--file path|-] [--json]
+    // Headless CLI: logsift --cli [--file path|-] [--json]
     bool cliMode = false, cliJson = false;
     std::string cliFile, cliProfile = "auto";
     LoadProfiles(argc > 0 ? argv[0] : nullptr);
@@ -992,7 +992,7 @@ int main(int argc, char** argv) {
         else if (arg == "--file" && i + 1 < argc) cliFile = argv[++i];
         else if (arg == "--profile" && i + 1 < argc) cliProfile = argv[++i];
         else if (arg == "--help" || arg == "-h") {
-            std::cout << "nex-log-sift --cli [--file <log>|-] [--profile auto|generic|<id>] [--json]\n"
+            std::cout << "logsift --cli [--file <log>|-] [--profile auto|generic|<id>] [--json]\n"
                          "Reads a log from --file or stdin and writes filtered diagnostics to stdout.\n";
             return 0;
         }
@@ -1003,13 +1003,13 @@ int main(int argc, char** argv) {
         std::ostringstream ss;
         if (!cliFile.empty() && cliFile != "-") {
             std::ifstream in(cliFile, std::ios::binary);
-            if (!in) { std::cerr << "nex-log-sift: cannot open " << cliFile << "\n"; return 2; }
+            if (!in) { std::cerr << "logsift: cannot open " << cliFile << "\n"; return 2; }
             ss << in.rdbuf();
         } else {
             ss << std::cin.rdbuf();
         }
         const std::string source = ss.str();
-        if (source.empty()) { std::cerr << "nex-log-sift: empty input\n"; return 2; }
+        if (source.empty()) { std::cerr << "logsift: empty input\n"; return 2; }
         const std::string filtered = PreFilter(source, cliCfg);
         const DiagnosticSplit split = LooksLikeUnrealLog(source) && (cliCfg.profileId=="auto" || cliCfg.profileId=="unreal") ? SplitUnrealDiagnostics(source, cliCfg) : SplitWithProfile(source, cliCfg);
         const std::string candidate = !split.included.empty() ? split.included : filtered;
