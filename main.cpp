@@ -436,6 +436,85 @@ void ApplyLogSiftStyle() {
     c[ImGuiCol_TextSelectedBg]    = ImVec4(0.10f, 0.38f, 0.56f, 0.60f);
 }
 
+void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
+    const char* label = sourceKind.empty() ? "Manual" : sourceKind.c_str();
+    const float icon = 16.0f;
+    const float textWidth = ImGui::CalcTextSize(label).x;
+    const ImVec2 size(icon + 7.0f + textWidth + 10.0f, 20.0f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+
+    ImGui::InvisibleButton("##toast_source_badge", size);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
+    const ImU32 bg = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(color.x, color.y, color.z, 0.12f));
+    draw->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), bg, 4.0f);
+
+    const ImVec2 q(p.x + 5.0f, p.y + 2.0f);
+    if (sourceKind == "OCR") {
+        // Four scan corners plus a small center lens.
+        draw->AddLine({q.x, q.y + 5}, {q.x, q.y}, fg, 1.5f);
+        draw->AddLine({q.x, q.y}, {q.x + 5, q.y}, fg, 1.5f);
+        draw->AddLine({q.x + 12, q.y + 5}, {q.x + 12, q.y}, fg, 1.5f);
+        draw->AddLine({q.x + 12, q.y}, {q.x + 7, q.y}, fg, 1.5f);
+        draw->AddLine({q.x, q.y + 9}, {q.x, q.y + 14}, fg, 1.5f);
+        draw->AddLine({q.x, q.y + 14}, {q.x + 5, q.y + 14}, fg, 1.5f);
+        draw->AddLine({q.x + 12, q.y + 9}, {q.x + 12, q.y + 14}, fg, 1.5f);
+        draw->AddLine({q.x + 12, q.y + 14}, {q.x + 7, q.y + 14}, fg, 1.5f);
+        draw->AddCircle({q.x + 6, q.y + 7}, 2.2f, fg, 0, 1.4f);
+    } else if (sourceKind == "File") {
+        draw->AddRect({q.x + 1, q.y}, {q.x + 11, q.y + 14}, fg, 1.0f, 0, 1.4f);
+        draw->AddLine({q.x + 7, q.y}, {q.x + 11, q.y + 4}, fg, 1.4f);
+        draw->AddLine({q.x + 7, q.y}, {q.x + 7, q.y + 4}, fg, 1.4f);
+        draw->AddLine({q.x + 7, q.y + 4}, {q.x + 11, q.y + 4}, fg, 1.4f);
+    } else if (sourceKind == "Clipboard") {
+        draw->AddRect({q.x + 1, q.y + 2}, {q.x + 12, q.y + 14}, fg, 2.0f, 0, 1.4f);
+        draw->AddRectFilled({q.x + 4, q.y}, {q.x + 9, q.y + 4}, fg, 1.5f);
+        draw->AddLine({q.x + 4, q.y + 7}, {q.x + 9, q.y + 7}, fg, 1.2f);
+        draw->AddLine({q.x + 4, q.y + 10}, {q.x + 9, q.y + 10}, fg, 1.2f);
+    } else {
+        draw->AddLine({q.x + 1, q.y + 4}, {q.x + 11, q.y + 4}, fg, 1.4f);
+        draw->AddLine({q.x + 1, q.y + 8}, {q.x + 11, q.y + 8}, fg, 1.4f);
+        draw->AddLine({q.x + 1, q.y + 12}, {q.x + 8, q.y + 12}, fg, 1.4f);
+    }
+
+    draw->AddText({p.x + icon + 8.0f, p.y + 2.0f}, fg, label);
+}
+
+bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 22.0f) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton("##toast_sound_toggle", {size, size});
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+
+    if (hovered) {
+        draw->AddRectFilled(p, {p.x + size, p.y + size},
+            IM_COL32(65, 75, 84, 150), 4.0f);
+        ImGui::SetTooltip(enabled ? "Mute notification sounds" : "Unmute notification sounds");
+    }
+
+    const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
+    const float cx = p.x + size * 0.47f;
+    const float cy = p.y + size * 0.50f;
+    ImVec2 speaker[6] = {
+        {p.x + 4, cy - 3}, {p.x + 8, cy - 3},
+        {cx, cy - 7}, {cx, cy + 7},
+        {p.x + 8, cy + 3}, {p.x + 4, cy + 3}
+    };
+    draw->AddConvexPolyFilled(speaker, 6, fg);
+
+    if (enabled) {
+        draw->PathArcTo({cx, cy}, 5.0f, -0.72f, 0.72f, 10);
+        draw->PathStroke(fg, 0, 1.3f);
+        draw->PathArcTo({cx, cy}, 8.0f, -0.62f, 0.62f, 10);
+        draw->PathStroke(fg, 0, 1.3f);
+    } else {
+        draw->AddLine({p.x + 14, p.y + 7}, {p.x + 20, p.y + 15}, fg, 1.6f);
+        draw->AddLine({p.x + 20, p.y + 7}, {p.x + 14, p.y + 15}, fg, 1.6f);
+    }
+    return clicked;
+}
+
 std::string ActivityClockTime() {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
@@ -839,7 +918,22 @@ size_t EstimateTokenCount(const std::string& text) {
         std::ceil(static_cast<double>(text.size()) / 3.7)));
 }
 
+struct OcrPassStats {
+    bool present = false;
+    std::string mimeType;
+    size_t imageBytes = 0;
+    size_t outputBytes = 0;
+    size_t outputLines = 0;
+    size_t outputWords = 0;
+    int promptTokens = 0;
+    int completionTokens = 0;
+    double promptTokensPerSecond = 0.0;
+    double completionTokensPerSecond = 0.0;
+    double seconds = 0.0;
+};
+
 struct RunStats {
+    std::string sourceKind = "Manual";
     std::string logType = "Unknown";
     std::string route = "Not run";
     std::string profile = "Generic Log";
@@ -860,6 +954,7 @@ struct RunStats {
     double promptTokensPerSecond = 0.0;
     double completionTokensPerSecond = 0.0;
     double estimatedPromptTokensPerSecond = 0.0;
+    OcrPassStats ocr;
 };
 
 struct DiagnosticSplit {
@@ -879,6 +974,7 @@ struct SiftResult {
     int completionTokens = 0;
     double promptTokensPerSecond = 0.0;
     double completionTokensPerSecond = 0.0;
+    OcrPassStats ocr;
 };
 
 struct SiftProgress {
@@ -1695,6 +1791,7 @@ SiftResult SendModelChunk(
         cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
     cmd += " --data-binary @" + ShellQuote(temp.string()) + " 2>&1";
 
+    const auto ocrStarted = std::chrono::steady_clock::now();
     std::string raw;
     try {
         raw = ReadPipe(cmd);
@@ -1846,6 +1943,9 @@ struct VisionTextResult {
     std::string text;
     int promptTokens = 0;
     int completionTokens = 0;
+    double promptTokensPerSecond = 0.0;
+    double completionTokensPerSecond = 0.0;
+    double seconds = 0.0;
 };
 
 SiftResult Send(
@@ -1923,9 +2023,18 @@ VisionTextResult ExtractTextFromClipboardImage(const Config& cfg, const Clipboar
 
     VisionTextResult result;
     result.text = text;
+    result.seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - ocrStarted).count();
     if (response.contains("usage")) {
         result.promptTokens = response["usage"].value("prompt_tokens", 0);
         result.completionTokens = response["usage"].value("completion_tokens", 0);
+    }
+    if (response.contains("stats")) {
+        const auto& responseStats = response["stats"];
+        result.promptTokensPerSecond =
+            responseStats.value("prompt_tokens_per_second", 0.0);
+        result.completionTokensPerSecond =
+            responseStats.value("tokens_per_second", 0.0);
     }
     return result;
 }
@@ -1953,6 +2062,9 @@ SiftResult SendClipboardImage(
         failed.note = e.what();
         failed.sourceWasImage = true;
         failed.visionFailure = true;
+        failed.ocr.present = true;
+        failed.ocr.mimeType = image.mimeType;
+        failed.ocr.imageBytes = image.bytes.size();
         return failed;
     }
 
@@ -1965,8 +2077,15 @@ SiftResult SendClipboardImage(
         empty.note = "No readable text was found in the clipboard image.";
         empty.sourceWasImage = true;
         empty.sourceText.clear();
-        empty.promptTokens = ocr.promptTokens;
-        empty.completionTokens = ocr.completionTokens;
+        empty.ocr.present = true;
+        empty.ocr.mimeType = image.mimeType;
+        empty.ocr.imageBytes = image.bytes.size();
+        empty.ocr.outputBytes = ocr.text.size();
+        empty.ocr.promptTokens = ocr.promptTokens;
+        empty.ocr.completionTokens = ocr.completionTokens;
+        empty.ocr.promptTokensPerSecond = ocr.promptTokensPerSecond;
+        empty.ocr.completionTokensPerSecond = ocr.completionTokensPerSecond;
+        empty.ocr.seconds = ocr.seconds;
         return empty;
     }
 
@@ -1974,8 +2093,15 @@ SiftResult SendClipboardImage(
     result.sourceWasImage = true;
     result.sourceText = ocr.text;
     result.route = "Vision OCR -> " + result.route;
-    result.promptTokens += ocr.promptTokens;
-    result.completionTokens += ocr.completionTokens;
+    result.ocr.present = true;
+    result.ocr.mimeType = image.mimeType;
+    result.ocr.imageBytes = image.bytes.size();
+    result.ocr.outputBytes = ocr.text.size();
+    result.ocr.promptTokens = ocr.promptTokens;
+    result.ocr.completionTokens = ocr.completionTokens;
+    result.ocr.promptTokensPerSecond = ocr.promptTokensPerSecond;
+    result.ocr.completionTokensPerSecond = ocr.completionTokensPerSecond;
+    result.ocr.seconds = ocr.seconds;
     return result;
 }
 
@@ -2404,6 +2530,7 @@ int main(int argc, char** argv) {
     AppendActivityLog(appLog, "CONFIG", std::string("OCR: ") + (cfg.ocrEnabled ? "on" : "off"));
     bool showAppLog = false;
     std::string lastClipboardText;
+    std::string inputSourceKind = "Manual";
 #ifdef _WIN32
     DWORD lastClipboardSequence = 0;
 #endif
@@ -2419,6 +2546,7 @@ int main(int argc, char** argv) {
     bool toastSoundPlayed = false;
     bool toastAutoCopied = false;
     bool toastStatsExpanded = true;
+    bool toastOcrStatsExpanded = true;
     bool toastPreviewExpanded = true;
 
     bool toastTimerPaused = false;
@@ -2976,6 +3104,8 @@ int main(int argc, char** argv) {
                     questionableOutput.clear();
                     lastInputBytes = lastFilteredBytes = 0;
                     stats = {};
+                    inputSourceKind = "File";
+                    stats.sourceKind = inputSourceKind;
                 }
             }
         }
