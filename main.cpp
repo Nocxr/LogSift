@@ -8,6 +8,7 @@
 #include "src/model/client.h"
 #include "src/profiles/profiles.h"
 #include "src/ui/popup_timer.h"
+#include "src/ui/style.h"
 #include "src/config/config_types.h"
 #include "src/config/config_store.h"
 #include "src/core/stats_history.h"
@@ -72,7 +73,6 @@ using json = nlohmann::json;
 
 #include "src/platform/windows.inl"
 #include "src/platform/clipboard.inl"
-#include "src/ui/style.inl"
 #include "src/core/activity.inl"
 #include "src/core/output_prefs.inl"
 #include "src/audio/notifications.inl"

@@ -1,3 +1,8 @@
+#include "style.h"
+
+#include <cmath>
+#include <string>
+
 // Shared ImGui styling and compact UI primitives.
 // Included by main.cpp; keep this module focused on this responsibility.
 
@@ -94,7 +99,7 @@ void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
     draw->AddText({p.x + icon + 9.0f, textY}, fg, label);
 }
 
-bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 26.0f) {
+bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size) {
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton("##toast_sound_toggle", {size, size});
     const bool hovered = ImGui::IsItemHovered();
@@ -135,7 +140,7 @@ bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 26.0f)
     return clicked;
 }
 
-bool ToastCloseIconButton(const ImVec4& color, float size = 26.0f) {
+bool ToastCloseIconButton(const ImVec4& color, float size) {
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton("##toast_close", {size, size});
     const bool hovered = ImGui::IsItemHovered();
@@ -156,7 +161,7 @@ bool ToastCloseIconButton(const ImVec4& color, float size = 26.0f) {
     return clicked;
 }
 
-bool ToastGearIconButton(const ImVec4& color, float size = 26.0f) {
+bool ToastGearIconButton(const ImVec4& color, float size) {
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton("##toast_gear", {size, size});
     const bool hovered = ImGui::IsItemHovered();

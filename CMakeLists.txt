@@ -84,7 +84,7 @@ set(LOGSIFT_SOURCE_FRAGMENTS
     src/config/config_types.h
     src/core/process.h
     src/core/task.h
-    src/ui/style.inl
+    src/ui/style.h
     src/core/activity.inl
     src/config/config_store.h
     src/core/output_prefs.inl
@@ -131,6 +131,7 @@ add_executable(logsift
     src/model/client.cpp
     src/profiles/profiles.cpp
     src/ui/popup_timer.cpp
+    src/ui/style.cpp
     ${LOGSIFT_SOURCE_FRAGMENTS})
 target_compile_definitions(logsift PRIVATE
     LOGSIFT_VERSION="${PROJECT_VERSION}")
