@@ -1809,6 +1809,7 @@ int main(int argc, char** argv) {
     std::chrono::steady_clock::time_point toastUntil{};
     bool toastProcessing = false;
     bool toastSoundPlayed = false;
+    bool toastAutoCopied = false;
     enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
@@ -1994,7 +1995,8 @@ int main(int argc, char** argv) {
                     toastText = "Clipboard detected";
                     toastProcessing = false;
                     toastOutcome = ToastOutcome::Processing;
-                    toastSoundPlayed = true; // acknowledgement is visual; completion sound remains separate.
+                    toastSoundPlayed = true;
+                    toastAutoCopied = false; // acknowledgement is visual; completion sound remains separate.
                     toastShownAt = now;
                     toastUntil = now + std::chrono::milliseconds(1800);
                 }
@@ -2015,6 +2017,7 @@ int main(int argc, char** argv) {
                     toastProcessing = false;
                     toastOutcome = ToastOutcome::Empty;
                     toastSoundPlayed = false;
+                    toastAutoCopied = false;
                     toastShownAt = now;
                     toastUntil = now + std::chrono::milliseconds(static_cast<int>(cfg.toastSeconds * 1000.0f));
                 } else if (parseable && !filtered.empty()) {
@@ -2034,6 +2037,7 @@ int main(int argc, char** argv) {
                     toastProcessing = true;
                     toastOutcome = ToastOutcome::Processing;
                     toastSoundPlayed = false;
+                    toastAutoCopied = false;
                     toastShownAt = now;
                     toastUntil = now + std::chrono::hours(1);
                     if (cfg.toastSound) PlaySynthPreset(cfg.startSoundPreset, true);
@@ -2042,6 +2046,7 @@ int main(int argc, char** argv) {
                         stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - requestStarted).count();
                         const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                         if (autoCopied) markOwnClipboardWrite();
+                        toastAutoCopied = autoCopied;
                         status = autoCopied ? "Clipboard log parsed and result auto-copied." : "Clipboard log parsed.";
                         toastText = "Complete";
                         toastProcessing = false;
@@ -2126,6 +2131,7 @@ int main(int argc, char** argv) {
 
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                     if (autoCopied) markOwnClipboardWrite();
+                    toastAutoCopied = autoCopied;
                     if (result.usedLocalFallback) {
                         status = std::string("Model online - local filter used. ") + result.note;
                         if (autoCopied) status += " Result auto-copied.";
@@ -2179,6 +2185,7 @@ int main(int argc, char** argv) {
 
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                     if (autoCopied) markOwnClipboardWrite();
+                    toastAutoCopied = autoCopied;
 
                     const char* fallbackName = endpointUnavailable ? "Offline fallback" : "Model fallback";
                     status = std::string(fallbackName) +
@@ -2834,9 +2841,10 @@ int main(int argc, char** argv) {
                     SDL_Rect usable{};
                     if (display && SDL_GetDisplayUsableBounds(display, &usable)) {
                         const int tw = 460;
+                        const int autoCopyExtra = toastAutoCopied ? 28 : 0;
                         const int th = cfg.toastShowPreview
-                            ? std::clamp(165 + cfg.toastPreviewLines * 24, 190, 420)
-                            : 165;
+                            ? std::clamp(165 + cfg.toastPreviewLines * 24 + autoCopyExtra, 190, 448)
+                            : 165 + autoCopyExtra;
                         SDL_SetWindowSize(toastWindow, tw, th);
                         SDL_SetWindowPosition(toastWindow, usable.x + usable.w - tw - 18, usable.y + usable.h - th - 18);
                     }
@@ -2889,8 +2897,8 @@ int main(int argc, char** argv) {
                     if (chunkingNow) {
                         const int done = activeProgress->completed.load();
                         const int total = std::max(1, activeProgress->total.load());
-                        ImGui::Text("Large %s log - chunk %d / %d", stats.logType.c_str(),
-                            std::min(done + 1, total), total);
+                        ImGui::TextColored(outcomeColor, "Large %s log - chunk %d / %d",
+                            stats.logType.c_str(), std::min(done + 1, total), total);
                         ImGui::TextColored(outcomeColor,
                             "Chunking is in effect; large logs may take longer.");
                         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
@@ -2899,7 +2907,7 @@ int main(int argc, char** argv) {
                             {-1, 5}, "");
                         ImGui::PopStyleColor();
                     } else {
-                        ImGui::Text("Sifting %s...", stats.logType.c_str());
+                        ImGui::TextColored(outcomeColor, "Sifting %s...", stats.logType.c_str());
                         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
                         ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), {-1, 5}, "");
                         ImGui::PopStyleColor();
@@ -2918,29 +2926,44 @@ int main(int argc, char** argv) {
                         ImGui::TextWrapped("Connectivity is OK. The model response was not usable enough, so Log Sift kept conservative local diagnostics.");
                     }
                 }
-                std::string statLine;
-                if (cfg.toastShowType) statLine += stats.logType + " / " + stats.profile;
-                if (cfg.toastShowBytes) {
-                    if (!statLine.empty()) statLine += "  |  ";
-                    statLine += std::to_string(stats.inputBytes) + " -> " + std::to_string(stats.filteredBytes) + " bytes";
-                }
-                if (cfg.toastShowTime) {
-                    if (!statLine.empty()) statLine += "  |  ";
-                    char timeBuf[32]{};
-                    std::snprintf(timeBuf, sizeof(timeBuf), "%.2f s", stats.seconds);
-                    statLine += timeBuf;
-                }
-                if (!toastProcessing && !statLine.empty()) ImGui::TextDisabled("%s", statLine.c_str());
-                if (!toastProcessing && cfg.toastShowBytes && stats.inputBytes > 0) {
-                    const double reduced = 100.0 * (1.0 -
-                        static_cast<double>(stats.filteredBytes) / static_cast<double>(stats.inputBytes));
-                    ImGui::SameLine();
-                    const ImVec4 reductionColor = reduced >= 75.0
-                        ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
-                        : reduced >= 40.0
-                            ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
-                            : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
-                    ImGui::TextColored(reductionColor, "%.1f%% reduced", reduced);
+                if (!toastProcessing) {
+                    std::string sourceLabel;
+                    if (cfg.toastShowType) {
+                        sourceLabel = stats.logType;
+                        const bool redundantProfile =
+                            (stats.logType == "Unreal" && stats.profile == "Unreal Engine") ||
+                            stats.profile.empty() || stats.profile == stats.logType;
+                        if (!redundantProfile && stats.profile != "Generic")
+                            sourceLabel += " / " + stats.profile;
+                    }
+
+                    if (!sourceLabel.empty())
+                        ImGui::TextDisabled("%s", sourceLabel.c_str());
+
+                    if (cfg.toastShowBytes && stats.inputBytes > 0) {
+                        const double reduced = 100.0 * (1.0 -
+                            static_cast<double>(stats.filteredBytes) /
+                            static_cast<double>(stats.inputBytes));
+                        const ImVec4 reductionColor = reduced >= 75.0
+                            ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                            : reduced >= 40.0
+                                ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                                : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+
+                        ImGui::TextDisabled("%zu -> %zu bytes", stats.inputBytes, stats.filteredBytes);
+                        ImGui::SameLine();
+                        ImGui::TextColored(reductionColor, "%.1f%% reduced", reduced);
+                    }
+
+                    if (cfg.toastShowTime)
+                        ImGui::TextDisabled("Completed in %.2f s", stats.seconds);
+
+                    if (toastAutoCopied) {
+                        ImGui::Separator();
+                        ImGui::TextColored(
+                            ImVec4(0.32f, 0.92f, 0.58f, 1.0f),
+                            "AUTO-COPIED TO CLIPBOARD");
+                    }
                 }
                 if (!toastProcessing && cfg.toastShowCounts) ImGui::TextDisabled("%zu included  |  %zu questionable", entries, questionable);
                 if (!toastProcessing && cfg.toastShowPreview && !output.empty()) {
