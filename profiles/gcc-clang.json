@@ -1,0 +1,23 @@
+{
+  "id": "gcc-clang",
+  "name": "GCC / Clang",
+  "detect": [
+    "undefined reference",
+    ": error:",
+    ": warning:",
+    "clang++",
+    "g++"
+  ],
+  "high_priority": [
+    ": error:",
+    ": fatal error:",
+    "undefined reference"
+  ],
+  "warnings": [
+    ": warning:"
+  ],
+  "questionable": [
+    ": note:"
+  ],
+  "noise": []
+}
