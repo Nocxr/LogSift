@@ -787,6 +787,8 @@ struct RunStats {
     std::string logType = "Unknown";
     std::string route = "Not run";
     std::string profile = "Generic Log";
+    std::string model;
+    std::string compute = "Auto";
     size_t inputBytes = 0;
     size_t filteredBytes = 0;
     size_t inputLines = 0;
@@ -2209,7 +2211,10 @@ int main(int argc, char** argv) {
         // invisible ImGui frames. WM_CLIPBOARDUPDATE and tray messages wake this instantly.
         const bool hiddenNow = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) != 0;
         const bool asyncNow = busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
-        const bool toastNow = !toastText.empty() && (toastProcessing || std::chrono::steady_clock::now() < toastUntil);
+        const bool toastWindowVisible =
+            toastWindow && (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_HIDDEN) == 0;
+        const bool toastNow =
+            !toastText.empty() || toastProcessing || toastTimerPaused || toastWindowVisible;
         if (hiddenNow && !asyncNow && !toastNow && !gClipboardUpdatePending &&
             !gTrayRestoreRequested && !gTrayWatchToggleRequested &&
             !gTrayAutoCopyToggleRequested && !gTrayOpenLogRequested &&
@@ -2297,6 +2302,8 @@ int main(int argc, char** argv) {
                     questionableOutput.clear();
                     stats.logType = DetectLogType(input);
                     stats.profile = ProfileName(input, cfg);
+                    stats.model = cfg.model;
+                    stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
                     stats.inputBytes = input.size();
                     stats.filteredBytes = 0;
                     {
@@ -2328,6 +2335,8 @@ int main(int argc, char** argv) {
                     lastFilteredBytes = previewFiltered.size();
                     stats.logType = DetectLogType(input);
                     stats.profile = ProfileName(input, cfg);
+                    stats.model = cfg.model;
+                    stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
                     stats.inputBytes = input.size();
                     stats.filteredBytes = previewFiltered.size();
                     {
@@ -2904,6 +2913,8 @@ int main(int argc, char** argv) {
                 lastFilteredBytes = previewFiltered.size();
                 stats.logType = DetectLogType(input);
                 stats.profile = ProfileName(input, cfg);
+                stats.model = cfg.model;
+                stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
                 stats.inputBytes = input.size();
                 stats.filteredBytes = previewFiltered.size();
                 {
@@ -3720,7 +3731,8 @@ int main(int argc, char** argv) {
                     if (ImGui::Button("Dismiss", {dismissW, buttonH})) toastText.clear();
                 }
 
-                if (!toastProcessing && cfg.resultShowLifetimeBar) {
+                if (!toastProcessing && toastOutcome != ToastOutcome::Cancelled &&
+                    cfg.resultShowLifetimeBar) {
                     ImGui::Spacing();
                     const auto nowToast = std::chrono::steady_clock::now();
                     const float remaining = toastTimerPaused
