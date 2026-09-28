@@ -4107,6 +4107,16 @@ int main(int argc, char** argv) {
                         !toastProcessing && toastOutcome == ToastOutcome::Processing;
                     const bool sizingScanLayout =
                         toastProcessing || toastOutcome == ToastOutcome::Cancelled;
+                    const auto ocrPopupRows = [&]() {
+                        if (!stats.ocr.present) return 0;
+                        int rows = 1; // image input
+                        if (stats.ocr.outputBytes > 0) ++rows;
+                        if (stats.ocr.promptTokens > 0 || stats.ocr.completionTokens > 0) ++rows;
+                        if (stats.ocr.promptTokensPerSecond > 0.0 ||
+                            stats.ocr.completionTokensPerSecond > 0.0) ++rows;
+                        if (stats.ocr.seconds > 0.0) ++rows;
+                        return rows;
+                    };
 
                     int contentHeight = 78; // shared popup frame; content adds the rest
                     if (sizingScanLayout) {
@@ -4128,6 +4138,11 @@ int main(int argc, char** argv) {
                                 if (cfg.scanShowBytesReduction) contentHeight += 22;
                                 if (cfg.scanShowElapsedTime) contentHeight += 22;
                             }
+                        }
+                        if (stats.ocr.present) {
+                            contentHeight += 28;
+                            if (toastOcrStatsExpanded)
+                                contentHeight += ocrPopupRows() * 22;
                         }
                     } else if (sizingAcknowledgement) {
                         contentHeight += 26; // acknowledgement message
@@ -4166,6 +4181,11 @@ int main(int argc, char** argv) {
                                 if (cfg.resultShowBytesReduction) contentHeight += 22;
                                 if (cfg.resultShowTime) contentHeight += 22;
                             }
+                        }
+                        if (stats.ocr.present) {
+                            contentHeight += 28;
+                            if (toastOcrStatsExpanded)
+                                contentHeight += ocrPopupRows() * 22;
                         }
 
                         if (cfg.resultShowAutoCopy && toastAutoCopied) contentHeight += 34;
@@ -4255,8 +4275,35 @@ int main(int argc, char** argv) {
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 const float titleY = ImGui::GetCursorPosY();
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
+                ImGui::SameLine(0.0f, 9.0f);
+                DrawToastSourceBadge(stats.sourceKind, outcomeColor);
 
                 const float closeSize = 22.0f;
+                const float topButtonGap = 4.0f;
+                ImGui::SetCursorPos(ImVec2(
+                    ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x -
+                        closeSize * 2.0f - topButtonGap,
+                    std::max(0.0f, titleY - 3.0f)));
+                const ImVec4 soundIconColor = cfg.toastSound
+                    ? outcomeColor
+                    : ImVec4(0.58f, 0.60f, 0.64f, 1.0f);
+                if (ToastSoundIconButton(cfg.toastSound, soundIconColor, closeSize)) {
+                    cfg.toastSound = !cfg.toastSound;
+#ifdef _WIN32
+                    gTraySoundEnabled = cfg.toastSound;
+#elif defined(__APPLE__)
+                    LogSiftMacTraySetSound(cfg.toastSound);
+#endif
+                    status = cfg.toastSound
+                        ? "Notification sound enabled."
+                        : "Notification sound disabled.";
+                    SaveConfig(cfg);
+                    lastSavedConfig = ConfigToJson(cfg).dump();
+                    AppendActivityLog(appLog, "SOUND", status);
+                    if (!toastProcessing)
+                        toastSoundPlayed = true;
+                }
+
                 ImGui::SetCursorPos(ImVec2(
                     ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - closeSize,
                     std::max(0.0f, titleY - 3.0f)));
@@ -4375,6 +4422,56 @@ int main(int argc, char** argv) {
                                 ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Elapsed");
                                 ImGui::TableSetColumnIndex(1);
                                 ImGui::Text("%.1f s", elapsed);
+                            }
+                            ImGui::EndTable();
+                        }
+                    }
+
+                    if (stats.ocr.present) {
+                        ToastDisclosureRow(
+                            "scan_ocr_stats", "OCR pass", toastOcrStatsExpanded, outcomeColor);
+                        if (toastOcrStatsExpanded &&
+                            ImGui::BeginTable("##scan_ocr_popup_stats", 2,
+                                ImGuiTableFlags_SizingStretchProp)) {
+                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 102.0f);
+                            ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
+
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Image");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%s  |  %zu bytes",
+                                stats.ocr.mimeType.empty() ? "image" : stats.ocr.mimeType.c_str(),
+                                stats.ocr.imageBytes);
+
+                            if (stats.ocr.outputBytes > 0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Extracted");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%zu bytes  |  %zu lines  |  %zu words",
+                                    stats.ocr.outputBytes, stats.ocr.outputLines,
+                                    stats.ocr.outputWords);
+                            }
+                            if (stats.ocr.promptTokens > 0 || stats.ocr.completionTokens > 0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("OCR tokens");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%d prompt + %d output",
+                                    stats.ocr.promptTokens, stats.ocr.completionTokens);
+                            }
+                            if (stats.ocr.promptTokensPerSecond > 0.0 ||
+                                stats.ocr.completionTokensPerSecond > 0.0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("OCR speed");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%.0f prompt/s  |  %.0f output/s",
+                                    stats.ocr.promptTokensPerSecond,
+                                    stats.ocr.completionTokensPerSecond);
+                            }
+                            if (stats.ocr.seconds > 0.0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("OCR time");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%.2f s", stats.ocr.seconds);
                             }
                             ImGui::EndTable();
                         }
@@ -4518,6 +4615,56 @@ int main(int argc, char** argv) {
                             ImGui::Text("%.2f s", stats.seconds);
                         }
                         ImGui::EndTable();
+                    }
+
+                    if (stats.ocr.present) {
+                        ToastDisclosureRow(
+                            "result_ocr_stats", "OCR pass", toastOcrStatsExpanded, outcomeColor);
+                        if (toastOcrStatsExpanded &&
+                            ImGui::BeginTable("##result_ocr_popup_stats", 2,
+                                ImGuiTableFlags_SizingStretchProp)) {
+                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 102.0f);
+                            ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
+
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Image");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%s  |  %zu bytes",
+                                stats.ocr.mimeType.empty() ? "image" : stats.ocr.mimeType.c_str(),
+                                stats.ocr.imageBytes);
+
+                            if (stats.ocr.outputBytes > 0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Extracted");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%zu bytes  |  %zu lines  |  %zu words",
+                                    stats.ocr.outputBytes, stats.ocr.outputLines,
+                                    stats.ocr.outputWords);
+                            }
+                            if (stats.ocr.promptTokens > 0 || stats.ocr.completionTokens > 0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("OCR tokens");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%d prompt + %d output",
+                                    stats.ocr.promptTokens, stats.ocr.completionTokens);
+                            }
+                            if (stats.ocr.promptTokensPerSecond > 0.0 ||
+                                stats.ocr.completionTokensPerSecond > 0.0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("OCR speed");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%.0f prompt/s  |  %.0f output/s",
+                                    stats.ocr.promptTokensPerSecond,
+                                    stats.ocr.completionTokensPerSecond);
+                            }
+                            if (stats.ocr.seconds > 0.0) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("OCR time");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%.2f s", stats.ocr.seconds);
+                            }
+                            ImGui::EndTable();
+                        }
                     }
 
                     if (cfg.resultShowAutoCopy && toastAutoCopied) {
