@@ -26,6 +26,10 @@
 #include <iomanip>
 #include <iterator>
 #include <thread>
+
+#ifndef LOGSIFT_VERSION
+#define LOGSIFT_VERSION "dev"
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
