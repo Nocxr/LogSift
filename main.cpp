@@ -198,6 +198,7 @@ struct Config {
     bool toastShowTime = true;
     bool toastShowCounts = true;
     bool toastShowPreview = true;
+    int toastPreviewLines = 3;
     bool toastAcknowledgeClipboard = false;
 };
 
@@ -244,6 +245,7 @@ json ConfigToJson(const Config& cfg) {
         {"toast_show_time", cfg.toastShowTime},
         {"toast_show_counts", cfg.toastShowCounts},
         {"toast_show_preview", cfg.toastShowPreview},
+        {"toast_preview_lines", cfg.toastPreviewLines},
         {"toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard},
         {"auto_copy_results", cfg.autoCopyResults},
         {"watch_clipboard", cfg.watchClipboard},
@@ -282,6 +284,7 @@ void LoadConfig(Config& cfg) {
         cfg.toastShowTime = j.value("toast_show_time", cfg.toastShowTime);
         cfg.toastShowCounts = j.value("toast_show_counts", cfg.toastShowCounts);
         cfg.toastShowPreview = j.value("toast_show_preview", cfg.toastShowPreview);
+        cfg.toastPreviewLines = std::clamp(j.value("toast_preview_lines", cfg.toastPreviewLines), 1, 10);
         cfg.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard);
         cfg.autoCopyResults = j.value("auto_copy_results", cfg.autoCopyResults);
         cfg.watchClipboard = j.value("watch_clipboard", cfg.watchClipboard);
@@ -495,6 +498,54 @@ std::string ReadPipe(const std::string& command) {
     return out;
 }
 
+std::string DedupeLines(const std::string& text);
+
+std::string FormatDiagnosticText(const std::string& text, const Config& cfg) {
+    if (cfg.showTimestamps) return DedupeLines(text);
+
+    std::istringstream in(text);
+    std::ostringstream out;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        std::string shown = line;
+
+        // Unreal prefixes commonly look like:
+        // [2026.09.26-03.21.13:141][585]LogCategory: ...
+        // Strip the timestamp/frame prefix while keeping the category and message.
+        if (!shown.empty() && shown.front() == '[') {
+            const size_t logPos = shown.find("Log");
+            if (logPos != std::string::npos && logPos < 96) {
+                shown = shown.substr(logPos);
+            } else {
+                const size_t close = shown.find(']');
+                if (close != std::string::npos && close < 64) {
+                    const std::string prefix = shown.substr(1, close - 1);
+                    const bool timestampish =
+                        prefix.find(':') != std::string::npos ||
+                        prefix.find('.') != std::string::npos ||
+                        prefix.find('-') != std::string::npos;
+                    const bool hasDigit = std::any_of(prefix.begin(), prefix.end(),
+                        [](unsigned char ch) { return std::isdigit(ch) != 0; });
+                    if (timestampish && hasDigit) {
+                        size_t start = close + 1;
+                        // Strip one additional numeric frame/thread bracket.
+                        if (start < shown.size() && shown[start] == '[') {
+                            const size_t close2 = shown.find(']', start);
+                            if (close2 != std::string::npos && close2 - start < 16)
+                                start = close2 + 1;
+                        }
+                        while (start < shown.size() && std::isspace(static_cast<unsigned char>(shown[start]))) ++start;
+                        shown = shown.substr(start);
+                    }
+                }
+            }
+        }
+        out << shown << '\n';
+    }
+    return DedupeLines(out.str());
+}
+
 std::string DedupeLines(const std::string& text) {
     std::istringstream in(text);
     std::ostringstream out;
@@ -580,9 +631,16 @@ DiagnosticSplit SplitWithProfile(const std::string& text, const Config& cfg) {
     while(std::getline(in,line)) {
         if(!line.empty()&&line.back()=='\r') line.pop_back();
         if(ContainsAny(line,p->noise)) continue;
-        if(ContainsAny(line,p->questionable)) {if(seenQ.insert(line).second) questionable<<line<<'\n'; continue;}
+        if(ContainsAny(line,p->questionable)) {
+            const std::string shown = FormatDiagnosticText(line, cfg);
+            if(seenQ.insert(shown).second) questionable<<shown;
+            continue;
+        }
         const bool high=ContainsAny(line,p->highPriority), warn=ContainsAny(line,p->warnings);
-        if(((cfg.showErrors&&high)||(cfg.showWarnings&&warn))&&seenGood.insert(line).second) good<<line<<'\n';
+        if((cfg.showErrors&&high)||(cfg.showWarnings&&warn)) {
+            const std::string shown = FormatDiagnosticText(line, cfg);
+            if(seenGood.insert(shown).second) good<<shown;
+        }
     }
     r.included=good.str(); r.questionable=questionable.str(); return r;
 }
@@ -643,7 +701,8 @@ std::string PreFilterUnrealLog(const std::string& text, const Config& cfg) {
         const size_t begin = cfg.showContext && i > 1 ? i - 1 : i;
         const size_t end = cfg.showContext ? std::min(lines.size(), i + 3) : i + 1;
         for (size_t j = begin; j < end; ++j) {
-            if (seen.insert(lines[j]).second) out << lines[j] << '\n';
+            const std::string shown = FormatDiagnosticText(lines[j], cfg);
+            if (seen.insert(shown).second) out << shown;
         }
     }
     return out.str();
@@ -677,11 +736,13 @@ DiagnosticSplit SplitUnrealDiagnostics(const std::string& text, const Config& cf
             line.find("Adding HMD requested") != std::string::npos ||
             line.find("isn't part of the engine's core extension list") != std::string::npos;
         if (questionableLine) {
-            if (questionableSeen.insert(line).second) questionable << line << '\n';
+            const std::string shown = FormatDiagnosticText(line, cfg);
+            if (questionableSeen.insert(shown).second) questionable << shown;
             continue;
         }
         if ((cfg.showErrors && error) || (cfg.showWarnings && warning)) {
-            if (includedSeen.insert(line).second) included << line << '\n';
+            const std::string shown = FormatDiagnosticText(line, cfg);
+            if (includedSeen.insert(shown).second) included << shown;
         }
     }
     result.included = included.str();
@@ -1872,7 +1933,14 @@ int main(int argc, char** argv) {
         if (lastInputBytes > 0) {
             const double pct = 100.0 * static_cast<double>(lastFilteredBytes) / static_cast<double>(lastInputBytes);
             ImGui::SameLine();
-            ImGui::TextDisabled("Prefilter: %zu -> %zu bytes (%.1f%%)", lastInputBytes, lastFilteredBytes, pct);
+            ImGui::TextDisabled("Prefilter: %zu -> %zu bytes", lastInputBytes, lastFilteredBytes);
+            ImGui::SameLine();
+            const ImVec4 reductionColor = pct <= 25.0
+                ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                : pct <= 60.0
+                    ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                    : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+            ImGui::TextColored(reductionColor, "(%.1f%% retained / %.1f%% reduced)", pct, 100.0 - pct);
         }
 
         ImGui::SeparatorText("PERFORMANCE / STATS");
@@ -2032,6 +2100,11 @@ int main(int argc, char** argv) {
                 ImGui::SameLine(); ImGui::Checkbox("Processing time", &cfg.toastShowTime);
                 ImGui::SameLine(); ImGui::Checkbox("Included / questionable counts", &cfg.toastShowCounts);
                 ImGui::Checkbox("Diagnostic preview", &cfg.toastShowPreview);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(110);
+                ImGui::SliderInt("##preview_lines", &cfg.toastPreviewLines, 1, 10, "%d lines");
+                ImGui::SameLine();
+                ImGui::TextDisabled("Preview lines");
                 ImGui::TextDisabled("These control the compact always-on-top notification.");
                 ImGui::EndTabItem();
             }
@@ -2091,7 +2164,11 @@ int main(int argc, char** argv) {
                     SDL_DisplayID display = (displays && displayCount > 0) ? displays[0] : 0;
                     SDL_Rect usable{};
                     if (display && SDL_GetDisplayUsableBounds(display, &usable)) {
-                        int tw = 460, th = cfg.toastShowPreview ? 230 : 165;
+                        const int tw = 460;
+                        const int th = cfg.toastShowPreview
+                            ? std::clamp(165 + cfg.toastPreviewLines * 24, 190, 420)
+                            : 165;
+                        SDL_SetWindowSize(toastWindow, tw, th);
                         SDL_SetWindowPosition(toastWindow, usable.x + usable.w - tw - 18, usable.y + usable.h - th - 18);
                     }
                     if (displays) SDL_free(displays);
@@ -2156,11 +2233,23 @@ int main(int argc, char** argv) {
                     statLine += timeBuf;
                 }
                 if (!toastProcessing && !statLine.empty()) ImGui::TextDisabled("%s", statLine.c_str());
+                if (!toastProcessing && cfg.toastShowBytes && stats.inputBytes > 0) {
+                    const double reduced = 100.0 * (1.0 -
+                        static_cast<double>(stats.filteredBytes) / static_cast<double>(stats.inputBytes));
+                    ImGui::SameLine();
+                    const ImVec4 reductionColor = reduced >= 75.0
+                        ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                        : reduced >= 40.0
+                            ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                            : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+                    ImGui::TextColored(reductionColor, "%.1f%% reduced", reduced);
+                }
                 if (!toastProcessing && cfg.toastShowCounts) ImGui::TextDisabled("%zu included  |  %zu questionable", entries, questionable);
                 if (!toastProcessing && cfg.toastShowPreview && !output.empty()) {
                     ImGui::Separator();
                     const auto previewEntries = DiagnosticEntries(output);
-                    const size_t previewCount = std::min<size_t>(previewEntries.size(), 3);
+                    const size_t previewCount = std::min<size_t>(
+                        previewEntries.size(), static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10)));
                     for (size_t i = 0; i < previewCount; ++i) {
                         std::string preview = previewEntries[i];
                         const size_t nl = preview.find('\n');
