@@ -155,7 +155,7 @@ bool WindowsSetStartAtLogin(bool enabled) {
             RegCloseKey(key);
             return false;
         }
-        std::wstring command = L"\"" + std::wstring(exePath, len) + L"\"";
+        std::wstring command = L"\"" + std::wstring(exePath, len) + L"\" --background";
         rc = RegSetValueExW(key, L"Log Sift", 0, REG_SZ,
             reinterpret_cast<const BYTE*>(command.c_str()),
             static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
@@ -1182,12 +1182,13 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
 
 int main(int argc, char** argv) {
     // Headless CLI: logsift --cli [--file path|-] [--json]
-    bool cliMode = false, cliJson = false;
+    bool cliMode = false, cliJson = false, backgroundMode = false;
     std::string cliFile, cliProfile = "auto";
     LoadProfiles(argc > 0 ? argv[0] : nullptr);
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--cli") cliMode = true;
+        else if (arg == "--background") backgroundMode = true;
         else if (arg == "--json") cliJson = true;
         else if (arg == "--file" && i + 1 < argc) cliFile = argv[++i];
         else if (arg == "--profile" && i + 1 < argc) cliProfile = argv[++i];
@@ -1231,8 +1232,9 @@ int main(int argc, char** argv) {
         return result.empty() ? 1 : 0;
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) return 1;
-    SDL_Window* window = SDL_CreateWindow("Log Sift", 1100, 760,
-        SDL_WINDOW_RESIZABLE);
+    SDL_WindowFlags mainWindowFlags = SDL_WINDOW_RESIZABLE;
+    if (backgroundMode) mainWindowFlags |= SDL_WINDOW_HIDDEN;
+    SDL_Window* window = SDL_CreateWindow("Log Sift", 1100, 760, mainWindowFlags);
     if (!window) return 1;
 #ifdef _WIN32
     InitTrayIcon();
