@@ -1,0 +1,24 @@
+{
+  "id": "generic",
+  "name": "Generic Log",
+  "detect": [],
+  "high_priority": [
+    "error",
+    "failed",
+    "failure",
+    "critical",
+    "fatal",
+    "exception",
+    "unable",
+    "alert"
+  ],
+  "warnings": [
+    "warning",
+    "warn",
+    "timeout",
+    "degraded",
+    "retry"
+  ],
+  "questionable": [],
+  "noise": []
+}
