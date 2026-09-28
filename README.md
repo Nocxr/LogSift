@@ -4,6 +4,10 @@ Log Sift is a small desktop utility for turning noisy build and runtime logs int
 
 Copy a log, drop a file, or snip a screenshot. Log Sift prefilters the noise locally, optionally asks an OpenAI-compatible model to refine the result, and gives you a compact set of errors/warnings you can paste somewhere useful.
 
+<p align="center">
+  <img src="docs/screenshots/main.png" alt="Log Sift filtering an Unreal Engine log" width="100%">
+</p>
+
 ## Highlights
 
 - **Clipboard-first:** watch copied logs automatically, with tray/menu-bar controls.
@@ -16,6 +20,39 @@ Copy a log, drop a file, or snip a screenshot. Log Sift prefilters the noise loc
 - **Profiles:** editable JSON profiles for different log formats.
 - **Windows + macOS:** native tray/menu-bar integration and start-at-login support.
 
+## OCR workflow
+
+Clipboard images can scan immediately, or Log Sift can ask before sending the image to the configured vision model.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/ocr-prompt.png" alt="Log Sift Image Detected OCR confirmation popup">
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/ocr-result.png" alt="Log Sift completed OCR result popup">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Confirm OCR before the image is sent.</sub></td>
+    <td align="center"><sub>OCR timing/tokens, sift stats, and the final diagnostics in one popup.</sub></td>
+  </tr>
+</table>
+
+The vision pass feeds extracted text back through the normal Log Sift pipeline:
+
+```text
+image -> OCR text -> local prefilter -> optional model sift -> result
+```
+
+## Recents
+
+Log Sift keeps a small persistent history of recent inputs and outputs (5 by default). Cycle through them from the Sift view or inspect, reload, copy, and delete them from the Recents tab.
+
+<p align="center">
+  <img src="docs/screenshots/recents.png" alt="Log Sift Recents browser" width="100%">
+</p>
+
 ## Quick start
 
 1. Build and launch Log Sift.
@@ -24,13 +61,7 @@ Copy a log, drop a file, or snip a screenshot. Log Sift prefilters the noise loc
 4. Enable **Watch clipboard**.
 5. Copy a log.
 
-If the selected model accepts image input, the health check marks **OCR / VISION** as supported. With OCR enabled, screenshots from the clipboard and dropped PNG/JPG files can go through:
-
-```
-image -> OCR text -> local prefilter -> optional model sift -> result
-```
-
-You can choose whether clipboard images scan immediately or show an **Image Detected** confirmation first.
+If the selected model accepts image input, the health check marks **OCR / VISION** as supported. Text-only models still work normally.
 
 ## Build
 
@@ -96,8 +127,6 @@ http://127.0.0.1:1234/v1/chat/completions
 ```
 
 The health check verifies the selected model and separately probes image input support instead of guessing from the model name.
-
-Text-only models still work normally; image clipboard/drop processing is only sent when OCR/vision is available.
 
 ## Data and settings
 
