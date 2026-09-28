@@ -4501,6 +4501,7 @@ int main(int argc, char** argv) {
                             contentHeight += 14;
                     }
 
+                    contentHeight += 8; // shared footer breathing room
                     const int maxToastHeight = std::max(220, usable.h - 36);
                     const int th = std::clamp(contentHeight, 180, maxToastHeight);
                     int currentW = 0, currentH = 0;
@@ -5079,12 +5080,22 @@ int main(int argc, char** argv) {
                     ImGui::PopStyleColor();
                 }
 
-                // Shared footer: separator + action row. Nothing is rendered
-                // beneath this row in any popup state.
+                // Shared footer: every popup uses the exact same bottom inset.
+                // Pinning this row means a slightly conservative body-height estimate
+                // can never create a different-looking bottom between popup states.
                 const float buttonH = 28.0f;
                 const float openW = 82.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 82.0f, gap = 8.0f;
+                const float footerY =
+                    ImGui::GetWindowHeight() -
+                    ImGui::GetStyle().WindowPadding.y -
+                    buttonH;
+                const float separatorY =
+                    std::max(
+                        ImGui::GetCursorPosY(),
+                        footerY - ImGui::GetStyle().ItemSpacing.y - 2.0f);
+                ImGui::SetCursorPosY(separatorY);
                 ImGui::Separator();
-                ImGui::Spacing();
+                ImGui::SetCursorPosY(footerY);
 
                 if (toastOutcome == ToastOutcome::OcrPrompt) {
                     const float startOcrW = 104.0f;
