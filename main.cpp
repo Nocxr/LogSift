@@ -177,7 +177,7 @@ bool InitTrayIcon() {
     gTrayIcon.uID = kTrayId;
     gTrayIcon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     gTrayIcon.uCallbackMessage = kTrayMessage;
-    gTrayIcon.hIcon = gAppIconSmall ? gAppIconSmall : LoadIconW(nullptr, IDI_APPLICATION);
+    gTrayIcon.hIcon = gAppIconSmall ? gAppIconSmall : LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
     wcscpy_s(gTrayIcon.szTip, L"Log Sift");
     return Shell_NotifyIconW(NIM_ADD, &gTrayIcon) != FALSE;
 }
@@ -323,11 +323,19 @@ void ApplyLogSiftStyle() {
 
 std::filesystem::path UserDataDir() {
 #ifdef _WIN32
-    const char* home = std::getenv("USERPROFILE");
+    char* homeBuffer = nullptr;
+    size_t homeLength = 0;
+    const errno_t homeResult = _dupenv_s(&homeBuffer, &homeLength, "USERPROFILE");
+    std::filesystem::path base =
+        (homeResult == 0 && homeBuffer && *homeBuffer)
+            ? std::filesystem::path(homeBuffer)
+            : std::filesystem::current_path();
+    std::free(homeBuffer);
 #else
     const char* home = std::getenv("HOME");
+    std::filesystem::path base =
+        (home && *home) ? std::filesystem::path(home) : std::filesystem::current_path();
 #endif
-    std::filesystem::path base = (home && *home) ? std::filesystem::path(home) : std::filesystem::current_path();
     return base / ".logsift";
 }
 
