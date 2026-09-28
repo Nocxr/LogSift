@@ -47,14 +47,14 @@ extern "C" void LogSiftMacTrayInit(void) {
         NSString* trayPath = [[NSBundle mainBundle] pathForResource:@"LogSiftTray" ofType:@"png"];
         NSImage* image = trayPath ? [[NSImage alloc] initWithContentsOfFile:trayPath] : nil;
         if (image) {
-            image.template = YES;
+            [image setTemplate:YES];
             image.size = NSMakeSize(18.0, 18.0);
             button.image = image;
             button.imagePosition = NSImageOnly;
         } else if (@available(macOS 11.0, *)) {
             NSImage* fallback = [NSImage imageWithSystemSymbolName:@"line.3.horizontal.decrease.circle"
                                          accessibilityDescription:@"Log Sift"];
-            fallback.template = YES;
+            [fallback setTemplate:YES];
             button.image = fallback;
             button.imagePosition = NSImageOnly;
         } else {
