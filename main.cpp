@@ -1075,7 +1075,7 @@ int main(int argc, char** argv) {
     std::chrono::steady_clock::time_point toastUntil{};
     bool toastProcessing = false;
     bool toastSoundPlayed = false;
-    enum class ToastOutcome { Processing, Success, Empty, Failure };
+    enum class ToastOutcome { Processing, Success, Empty, Fallback, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
     bool preferFastPath = true;
@@ -1322,7 +1322,38 @@ int main(int argc, char** argv) {
 
                 }
             }
-            catch (const std::exception& e) { output = e.what(); status = "Request failed."; }
+            catch (const std::exception& e) {
+                const DiagnosticSplit fallbackSplit =
+                    LooksLikeUnrealLog(input) && (cfg.profileId == "auto" || cfg.profileId == "unreal")
+                        ? SplitUnrealDiagnostics(input, cfg)
+                        : SplitWithProfile(input, cfg);
+                questionableOutput = fallbackSplit.questionable;
+                const std::string prefiltered = PreFilter(input, cfg);
+                const std::string fallbackCandidate =
+                    !fallbackSplit.included.empty() ? fallbackSplit.included : prefiltered;
+                output = LooksLikeStructuredBuildDiagnostics(fallbackCandidate)
+                    ? FastStructuredResult(fallbackCandidate)
+                    : DedupeLines(fallbackCandidate);
+                stats.filteredBytes = fallbackCandidate.size();
+                stats.route = "Offline fallback";
+                stats.promptTokens = 0;
+                stats.completionTokens = 0;
+                stats.promptTokensPerSecond = 0.0;
+                stats.completionTokensPerSecond = 0.0;
+                stats.estimatedPromptTokensPerSecond = 0.0;
+                health = "Offline / unavailable";
+                status = std::string("LLM unavailable - local fallback used. ") + e.what();
+
+                if (watchClipboard) {
+                    toastText = "Offline fallback";
+                    toastProcessing = false;
+                    toastOutcome = ToastOutcome::Fallback;
+                    toastSoundPlayed = false;
+                    toastShownAt = std::chrono::steady_clock::now();
+                    toastUntil = toastShownAt + std::chrono::milliseconds(
+                        static_cast<int>(cfg.toastSeconds * 1000.0f));
+                }
+            }
             stats.seconds = lastResponseSeconds;
             busy = false;
         }
@@ -1711,6 +1742,7 @@ int main(int argc, char** argv) {
                 ImVec4 outcomeColor(cfg.toastAccent[0], cfg.toastAccent[1], cfg.toastAccent[2], 1.0f);
                 if (toastOutcome == ToastOutcome::Success) outcomeColor = ImVec4(0.22f, 0.78f, 0.40f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Empty) outcomeColor = ImVec4(0.88f, 0.68f, 0.20f, 1.0f);
+                else if (toastOutcome == ToastOutcome::Fallback) outcomeColor = ImVec4(0.25f, 0.72f, 0.95f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Failure) outcomeColor = ImVec4(0.92f, 0.28f, 0.28f, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(cfg.toastBg[0], cfg.toastBg[1], cfg.toastBg[2], 1.0f));
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 13));
@@ -1722,6 +1754,7 @@ int main(int argc, char** argv) {
                 const char* outcomeLabel = toastProcessing ? "LOG SIFT - SCANNING" :
                     toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
+                    toastOutcome == ToastOutcome::Fallback ? "LOG SIFT - OFFLINE FALLBACK" :
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
                 ImGui::SameLine();
@@ -1734,6 +1767,8 @@ int main(int argc, char** argv) {
                     ImGui::TextDisabled("Prefiltered %zu -> %zu bytes  |  %.1f s elapsed", stats.inputBytes, stats.filteredBytes, elapsed);
                 } else {
                     ImGui::Text("%zu diagnostic%s", entries, entries == 1 ? "" : "s");
+                    if (toastOutcome == ToastOutcome::Fallback)
+                        ImGui::TextColored(outcomeColor, "LLM unavailable - local filter used");
                 }
                 std::string statLine;
                 if (cfg.toastShowType) statLine += stats.logType + " / " + stats.profile;
