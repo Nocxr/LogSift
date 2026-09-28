@@ -4036,7 +4036,7 @@ int main(int argc, char** argv) {
                 [capturedCfg] { return Benchmark(capturedCfg); });
         }
         ImGui::EndDisabled();
-        ImGui::SameLine();
+        ImGui::Spacing();
         const char* connectionLabel = "Ready";
         ImVec4 connectionColor(0.30f, 0.90f, 0.48f, 1.0f);
         switch (connectionStage) {
