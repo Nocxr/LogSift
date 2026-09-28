@@ -1330,59 +1330,58 @@ int main(int argc, char** argv) {
             if (activeRequestGeneration != requestGeneration) {
                 try { (void)request.get(); } catch (...) {}
                 busy = false;
-            } else try {
-                const SiftResult result = request.get();
-                output = result.text;
-                stats.promptTokens = result.promptTokens;
-                stats.completionTokens = result.completionTokens;
-                stats.promptTokensPerSecond = result.promptTokensPerSecond;
-                stats.completionTokensPerSecond = result.completionTokensPerSecond;
-                if (stats.promptTokens > 0 && stats.seconds > 0.0)
-                    stats.estimatedPromptTokensPerSecond = static_cast<double>(stats.promptTokens) / stats.seconds;
-                status = "Done.";
-                if (watchClipboard) {
-                    toastText = "Complete";
-                    toastProcessing = false;
-                    toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
-                    toastShownAt = std::chrono::steady_clock::now();
-                    toastUntil = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+            } else {
+                try {
+                    const SiftResult result = request.get();
+                    output = result.text;
+                    stats.promptTokens = result.promptTokens;
+                    stats.completionTokens = result.completionTokens;
+                    stats.promptTokensPerSecond = result.promptTokensPerSecond;
+                    stats.completionTokensPerSecond = result.completionTokensPerSecond;
+                    if (stats.promptTokens > 0 && stats.seconds > 0.0)
+                        stats.estimatedPromptTokensPerSecond = static_cast<double>(stats.promptTokens) / stats.seconds;
+                    status = "Done.";
+                    if (watchClipboard) {
+                        toastText = "Complete";
+                        toastProcessing = false;
+                        toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
+                        toastShownAt = std::chrono::steady_clock::now();
+                        toastUntil = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+                    }
+                } catch (const std::exception& e) {
+                    const DiagnosticSplit fallbackSplit =
+                        LooksLikeUnrealLog(input) && (cfg.profileId == "auto" || cfg.profileId == "unreal")
+                            ? SplitUnrealDiagnostics(input, cfg)
+                            : SplitWithProfile(input, cfg);
+                    questionableOutput = fallbackSplit.questionable;
+                    const std::string prefiltered = PreFilter(input, cfg);
+                    const std::string fallbackCandidate =
+                        !fallbackSplit.included.empty() ? fallbackSplit.included : prefiltered;
+                    output = LooksLikeStructuredBuildDiagnostics(fallbackCandidate)
+                        ? FastStructuredResult(fallbackCandidate)
+                        : DedupeLines(fallbackCandidate);
+                    stats.filteredBytes = fallbackCandidate.size();
+                    stats.route = "Offline fallback";
+                    stats.promptTokens = 0;
+                    stats.completionTokens = 0;
+                    stats.promptTokensPerSecond = 0.0;
+                    stats.completionTokensPerSecond = 0.0;
+                    stats.estimatedPromptTokensPerSecond = 0.0;
+                    health = "Offline / unavailable";
+                    status = std::string("LLM unavailable - local fallback used. ") + e.what();
 
+                    if (watchClipboard) {
+                        toastText = "Offline fallback";
+                        toastProcessing = false;
+                        toastOutcome = ToastOutcome::Fallback;
+                        toastSoundPlayed = false;
+                        toastShownAt = std::chrono::steady_clock::now();
+                        toastUntil = toastShownAt + std::chrono::milliseconds(
+                            static_cast<int>(cfg.toastSeconds * 1000.0f));
+                    }
                 }
-            }
-            catch (const std::exception& e) {
-                const DiagnosticSplit fallbackSplit =
-                    LooksLikeUnrealLog(input) && (cfg.profileId == "auto" || cfg.profileId == "unreal")
-                        ? SplitUnrealDiagnostics(input, cfg)
-                        : SplitWithProfile(input, cfg);
-                questionableOutput = fallbackSplit.questionable;
-                const std::string prefiltered = PreFilter(input, cfg);
-                const std::string fallbackCandidate =
-                    !fallbackSplit.included.empty() ? fallbackSplit.included : prefiltered;
-                output = LooksLikeStructuredBuildDiagnostics(fallbackCandidate)
-                    ? FastStructuredResult(fallbackCandidate)
-                    : DedupeLines(fallbackCandidate);
-                stats.filteredBytes = fallbackCandidate.size();
-                stats.route = "Offline fallback";
-                stats.promptTokens = 0;
-                stats.completionTokens = 0;
-                stats.promptTokensPerSecond = 0.0;
-                stats.completionTokensPerSecond = 0.0;
-                stats.estimatedPromptTokensPerSecond = 0.0;
-                health = "Offline / unavailable";
-                status = std::string("LLM unavailable - local fallback used. ") + e.what();
-
-                if (watchClipboard) {
-                    toastText = "Offline fallback";
-                    toastProcessing = false;
-                    toastOutcome = ToastOutcome::Fallback;
-                    toastSoundPlayed = false;
-                    toastShownAt = std::chrono::steady_clock::now();
-                    toastUntil = toastShownAt + std::chrono::milliseconds(
-                        static_cast<int>(cfg.toastSeconds * 1000.0f));
-                }
-            }
-            stats.seconds = lastResponseSeconds;
-            busy = false;
+                stats.seconds = lastResponseSeconds;
+                busy = false;
             }
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
