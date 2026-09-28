@@ -1,5 +1,16 @@
-// Token estimates, run statistics, recents persistence.
-// Included by main.cpp; keep this module focused on this responsibility.
+#include "stats_history.h"
+#include "../config/config_store.h"
+#include "atomic_file.h"
+
+#include <algorithm>
+#include <cmath>
+#include <ctime>
+#include <cstdio>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
+using json = nlohmann::json;
 
 size_t EstimateTokenCount(const std::string& text) {
     if (text.empty()) return 0;
@@ -9,72 +20,6 @@ size_t EstimateTokenCount(const std::string& text) {
     return std::max<size_t>(1, static_cast<size_t>(
         std::ceil(static_cast<double>(text.size()) / 3.7)));
 }
-
-struct OcrPassStats {
-    bool present = false;
-    std::string mimeType;
-    size_t imageBytes = 0;
-    size_t outputBytes = 0;
-    size_t outputLines = 0;
-    size_t outputWords = 0;
-    int promptTokens = 0;
-    int completionTokens = 0;
-    double promptTokensPerSecond = 0.0;
-    double completionTokensPerSecond = 0.0;
-    double seconds = 0.0;
-};
-
-struct RunStats {
-    std::string sourceKind = "Manual";
-    std::string logType = "Unknown";
-    std::string route = "Not run";
-    std::string profile = "Generic Log";
-    std::string model;
-    std::string compute = "Auto";
-    size_t inputBytes = 0;
-    size_t filteredBytes = 0;
-    size_t inputLines = 0;
-    size_t filteredLines = 0;
-    size_t inputWords = 0;
-    size_t filteredWords = 0;
-    size_t estimatedInputTokens = 0;
-    size_t estimatedFilteredTokens = 0;
-    double seconds = 0.0;
-    double ttftSeconds = 0.0;
-    int promptTokens = 0;
-    int completionTokens = 0;
-    double promptTokensPerSecond = 0.0;
-    double completionTokensPerSecond = 0.0;
-    double estimatedPromptTokensPerSecond = 0.0;
-    OcrPassStats ocr;
-};
-
-struct RecentRun {
-    std::string timestamp;
-    std::string sourceKind;
-    std::string logType;
-    std::string profile;
-    std::string route;
-    std::string model;
-    std::string compute;
-    std::string input;
-    std::string output;
-    std::string questionable;
-    size_t inputBytes = 0;
-    size_t filteredBytes = 0;
-    size_t inputLines = 0;
-    size_t filteredLines = 0;
-    size_t inputWords = 0;
-    size_t filteredWords = 0;
-    size_t estimatedInputTokens = 0;
-    size_t estimatedFilteredTokens = 0;
-    double seconds = 0.0;
-    int promptTokens = 0;
-    int completionTokens = 0;
-    double promptTokensPerSecond = 0.0;
-    double completionTokensPerSecond = 0.0;
-    OcrPassStats ocr;
-};
 
 std::filesystem::path RecentsPath() {
     return UserDataDir() / "recents.json";
@@ -176,9 +121,9 @@ RecentRun RecentRunFromJson(const json& j) {
     return r;
 }
 
-std::vector<RecentRun> LoadRecentRuns(int limit) {
+std::vector<RecentRun> LoadRecentRunsFile(const std::filesystem::path& path, int limit) {
     std::vector<RecentRun> out;
-    std::ifstream in(RecentsPath(), std::ios::binary);
+    std::ifstream in(path, std::ios::binary);
     if (!in) return out;
     try {
         json root;
@@ -189,16 +134,25 @@ std::vector<RecentRun> LoadRecentRuns(int limit) {
             out.push_back(RecentRunFromJson(item));
             if (static_cast<int>(out.size()) >= limit) break;
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        out.clear();
+        std::fprintf(stderr, "logsift: could not read %s: %s\n",
+                     path.string().c_str(), e.what());
+    }
     return out;
 }
 
-void SaveRecentRuns(const std::vector<RecentRun>& runs) {
-    std::error_code ec;
-    std::filesystem::create_directories(UserDataDir(), ec);
-    json root = json::array();
-    for (const auto& run : runs) root.push_back(RecentRunToJson(run));
-    std::ofstream out(RecentsPath(), std::ios::binary);
-    if (out) out << root.dump(2);
+std::vector<RecentRun> LoadRecentRuns(int limit) {
+    return LoadRecentRunsFile(RecentsPath(), limit);
 }
 
+void SaveRecentRunsFile(const std::filesystem::path& path,
+                        const std::vector<RecentRun>& runs) {
+    json root = json::array();
+    for (const auto& run : runs) root.push_back(RecentRunToJson(run));
+    WriteFileAtomically(path, root.dump(2) + "\n");
+}
+
+void SaveRecentRuns(const std::vector<RecentRun>& runs) {
+    SaveRecentRunsFile(RecentsPath(), runs);
+}

@@ -1,5 +1,6 @@
 #include "config/config_store.h"
 #include "core/process.h"
+#include "core/stats_history.h"
 #include "core/task.h"
 #include "ui/popup_timer.h"
 
@@ -77,6 +78,19 @@ int main() {
     }
     LoadConfigFile(path, fallback);
     ok &= check(fallback.model == Config{}.model, "invalid field cannot partially apply");
+    RecentRun run;
+    run.input = "build output";
+    run.output = "error C2143";
+    run.ocr.present = true;
+    run.ocr.imageBytes = 128;
+    const auto recents = directory / "recents.json";
+    SaveRecentRunsFile(recents, {run});
+    const auto loadedRuns = LoadRecentRunsFile(recents, 5);
+    ok &= check(loadedRuns.size() == 1 && loadedRuns[0].output == run.output &&
+                loadedRuns[0].ocr.imageBytes == 128, "recents round trip");
+    SaveRecentRunsFile(recents, {run, run});
+    ok &= check(LoadRecentRunsFile(recents, 1).size() == 1,
+                "recents limit and replacement");
     std::error_code ec;
     std::filesystem::remove_all(directory, ec);
     return ok ? 0 : 1;

@@ -1,3 +1,15 @@
+#include "client.h"
+#include "http.h"
+#include "../core/process.h"
+
+#include <nlohmann/json.hpp>
+#include <algorithm>
+#include <chrono>
+#include <sstream>
+#include <stdexcept>
+
+using json = nlohmann::json;
+
 // Model endpoint discovery, health checks, raw requests, benchmark.
 // Included by main.cpp; keep this module focused on this responsibility.
 
@@ -35,15 +47,6 @@ std::string ApplyComputeMode(const Config& cfg) {
     ReadPipe("lms load " + ShellQuote(cfg.model) + " --gpu " + gpu + " 2>&1");
     return cfg.computeMode == 1 ? "GPU max applied" : "CPU applied";
 }
-
-struct ModelHealthResult {
-    std::string status;
-    bool online = false;
-    bool modelAvailable = false;
-    bool visionChecked = false;
-    bool visionSupported = false;
-    std::string visionDetail;
-};
 
 ModelHealthResult CheckModel(const Config& cfg) {
     ModelHealthResult result;
@@ -143,4 +146,3 @@ std::string Benchmark(const Config& cfg) {
     return result.str();
 }
 
-bool LooksLikeGenericLog(const std::string& text) {

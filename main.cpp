@@ -5,9 +5,11 @@
 #include <misc/cpp/imgui_stdlib.h>
 #include <nlohmann/json.hpp>
 #include "src/model/http.h"
+#include "src/model/client.h"
 #include "src/ui/popup_timer.h"
 #include "src/config/config_types.h"
 #include "src/config/config_store.h"
+#include "src/core/stats_history.h"
 #include "src/core/process.h"
 #include "src/core/task.h"
 
@@ -73,10 +75,8 @@ using json = nlohmann::json;
 #include "src/core/activity.inl"
 #include "src/core/output_prefs.inl"
 #include "src/audio/notifications.inl"
-#include "src/core/stats_history.inl"
 #include "src/core/sift_types.inl"
 #include "src/profiles/profiles.inl"
-#include "src/model/client.inl"
 #include "src/model/fast_path.inl"
 #include "src/model/vision.inl"
 #include "src/io/input.inl"

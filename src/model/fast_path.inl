@@ -1,6 +1,7 @@
 // Structured fast path, chunking, result finalization, cancellation.
 // Included by main.cpp; keep this module focused on this responsibility.
 
+bool LooksLikeGenericLog(const std::string& text) {
     if (text.size() < 160) return false;
     std::istringstream in(text); std::string line;
     int nonEmpty=0, timestampish=0, signal=0, structured=0;
