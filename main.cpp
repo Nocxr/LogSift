@@ -2957,6 +2957,7 @@ int main(int argc, char** argv) {
     RunStats stats;
     ClipboardImage pendingOcrImage;
     bool pendingOcrImageReady = false;
+    size_t lastInputBytes = 0, lastFilteredBytes = 0;
 
     std::vector<RecentRun> recentRuns = LoadRecentRuns(cfg.recentLimit);
     int recentCursor = recentRuns.empty() ? -1 : 0;
@@ -3066,7 +3067,6 @@ int main(int argc, char** argv) {
     bool warnOnHealthFailure = false;
     std::chrono::steady_clock::time_point requestStarted{};
     double lastResponseSeconds = 0.0;
-    size_t lastInputBytes = 0, lastFilteredBytes = 0;
     auto lastClipboardCheck = std::chrono::steady_clock::now(); // non-Windows fallback only
 #ifdef __APPLE__
     long long lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
@@ -4492,9 +4492,7 @@ int main(int argc, char** argv) {
                             const std::string label =
                                 run.timestamp + "  " +
                                 (run.sourceKind.empty() ? "Manual" : run.sourceKind);
-                            if (ImGui::Selectable(
-                                    label.c_str(), selected,
-                                    ImGuiSelectableFlags_SpanAvailWidth)) {
+                            if (ImGui::Selectable(label.c_str(), selected)) {
                                 selectedRecent = static_cast<int>(i);
                             }
                             ImGui::TextDisabled("%s  |  %s",
