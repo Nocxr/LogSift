@@ -2,15 +2,20 @@
 
 static bool gOpen = false;
 static bool gToggleWatch = false;
+static bool gToggleAutoCopy = false;
+static bool gOpenLog = false;
 static bool gCopy = false;
 static bool gQuit = false;
 
 static NSStatusItem* gItem = nil;
 static NSMenuItem* gWatchItem = nil;
+static NSMenuItem* gAutoCopyItem = nil;
 
 @interface LogSiftStatusTarget : NSObject
 - (void)openApp:(id)sender;
 - (void)toggleWatch:(id)sender;
+- (void)toggleAutoCopy:(id)sender;
+- (void)openLog:(id)sender;
 - (void)copyResults:(id)sender;
 - (void)quitApp:(id)sender;
 @end
@@ -18,6 +23,8 @@ static NSMenuItem* gWatchItem = nil;
 @implementation LogSiftStatusTarget
 - (void)openApp:(id)sender { (void)sender; gOpen = true; }
 - (void)toggleWatch:(id)sender { (void)sender; gToggleWatch = true; }
+- (void)toggleAutoCopy:(id)sender { (void)sender; gToggleAutoCopy = true; }
+- (void)openLog:(id)sender { (void)sender; gOpenLog = true; }
 - (void)copyResults:(id)sender { (void)sender; gCopy = true; }
 - (void)quitApp:(id)sender { (void)sender; gQuit = true; }
 @end
@@ -76,11 +83,18 @@ extern "C" void LogSiftMacTrayInit(void) {
         gWatchItem.state = NSControlStateValueOn;
         [menu addItem:gWatchItem];
 
-        NSMenuItem* copy = [[NSMenuItem alloc] initWithTitle:@"Copy Results"
-                                                     action:@selector(copyResults:)
-                                              keyEquivalent:@""];
-        copy.target = gTarget;
-        [menu addItem:copy];
+        gAutoCopyItem = [[NSMenuItem alloc] initWithTitle:@"Auto Copy"
+                                                   action:@selector(toggleAutoCopy:)
+                                            keyEquivalent:@""];
+        gAutoCopyItem.target = gTarget;
+        gAutoCopyItem.state = NSControlStateValueOff;
+        [menu addItem:gAutoCopyItem];
+
+        NSMenuItem* openLog = [[NSMenuItem alloc] initWithTitle:@"Open Log"
+                                                        action:@selector(openLog:)
+                                                 keyEquivalent:@""];
+        openLog.target = gTarget;
+        [menu addItem:openLog];
 
         [menu addItem:[NSMenuItem separatorItem]];
 
@@ -106,6 +120,18 @@ extern "C" bool LogSiftMacTrayTakeToggleWatch(void) {
     return value;
 }
 
+extern "C" bool LogSiftMacTrayTakeToggleAutoCopy(void) {
+    const bool value = gToggleAutoCopy;
+    gToggleAutoCopy = false;
+    return value;
+}
+
+extern "C" bool LogSiftMacTrayTakeOpenLog(void) {
+    const bool value = gOpenLog;
+    gOpenLog = false;
+    return value;
+}
+
 extern "C" bool LogSiftMacTrayTakeCopy(void) {
     const bool value = gCopy;
     gCopy = false;
@@ -121,6 +147,12 @@ extern "C" bool LogSiftMacTrayTakeQuit(void) {
 extern "C" void LogSiftMacTraySetWatch(bool enabled) {
     if (gWatchItem) {
         gWatchItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+}
+
+extern "C" void LogSiftMacTraySetAutoCopy(bool enabled) {
+    if (gAutoCopyItem) {
+        gAutoCopyItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
     }
 }
 
