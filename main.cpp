@@ -4215,56 +4215,108 @@ int main(int argc, char** argv) {
 
         if (ImGui::BeginTabBar("##main_tabs")) {
             if (ImGui::BeginTabItem("Sift")) {
-        ImGui::SeparatorText("SIFT / FILTERS");
-        ImGui::TextUnformatted("Profile"); ImGui::SameLine();
+        ImGui::SeparatorText("SOURCE / AUTOMATION");
+        ImGui::TextColored(
+            ImVec4(0.72f, 0.62f, 1.00f, 1.0f), "Profile");
+        ImGui::SameLine();
         std::vector<std::string> profileLabels{"Auto","Generic"};
         std::vector<std::string> profileIds{"auto","generic"};
-        for (const auto& p : gProfiles) if (p.id!="generic") { profileLabels.push_back(p.name); profileIds.push_back(p.id); }
-        int profileIndex=0;
-        for(size_t i=0;i<profileIds.size();++i) if(profileIds[i]==cfg.profileId) profileIndex=(int)i;
-        std::vector<const char*> profileItems; for(auto& s:profileLabels) profileItems.push_back(s.c_str());
+        for (const auto& p : gProfiles) {
+            if (p.id != "generic") {
+                profileLabels.push_back(p.name);
+                profileIds.push_back(p.id);
+            }
+        }
+        int profileIndex = 0;
+        for (size_t i = 0; i < profileIds.size(); ++i) {
+            if (profileIds[i] == cfg.profileId)
+                profileIndex = static_cast<int>(i);
+        }
+        std::vector<const char*> profileItems;
+        for (auto& s : profileLabels)
+            profileItems.push_back(s.c_str());
         ImGui::SetNextItemWidth(180);
-        if(ImGui::Combo("##profile",&profileIndex,profileItems.data(),(int)profileItems.size())) cfg.profileId=profileIds[profileIndex];
-        ImGui::SameLine(); ImGui::TextDisabled("Detected: %s", input.empty() ? "-" : ProfileName(input,cfg).c_str());
-        if (ImGui::Checkbox("Watch clipboard", &cfg.watchClipboard)) {
-#ifdef _WIN32
-            gTrayWatchEnabled = cfg.watchClipboard;
-#elif defined(__APPLE__)
-            LogSiftMacTraySetWatch(cfg.watchClipboard);
-#endif
-            lastClipboardText.clear();
-#ifdef _WIN32
-            lastClipboardSequence = 0;
-#endif
-            status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
-            AppendActivityLog(appLog, "WATCH", status);
+        if (ImGui::Combo(
+                "##profile", &profileIndex,
+                profileItems.data(),
+                static_cast<int>(profileItems.size()))) {
+            cfg.profileId = profileIds[static_cast<size_t>(profileIndex)];
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("Automatically sifts copied text that looks like a log, including unknown formats.");
+        ImGui::TextDisabled(
+            "Detected: %s",
+            input.empty() ? "-" : ProfileName(input, cfg).c_str());
 
-        if (ImGui::Checkbox("OCR images", &cfg.ocrEnabled)) {
+        if (ImGui::BeginTable(
+                "##automation_controls", 3,
+                ImGuiTableFlags_SizingStretchSame |
+                ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableNextColumn();
+            ImGui::TextColored(
+                ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
+                "CLIPBOARD");
+            if (ImGui::Checkbox(
+                    "Watch clipboard##automation",
+                    &cfg.watchClipboard)) {
 #ifdef _WIN32
-            gTrayOcrEnabled = cfg.ocrEnabled;
+                gTrayWatchEnabled = cfg.watchClipboard;
 #elif defined(__APPLE__)
-            LogSiftMacTraySetOcr(cfg.ocrEnabled);
+                LogSiftMacTraySetWatch(cfg.watchClipboard);
 #endif
-            status = cfg.ocrEnabled ? "OCR enabled." : "OCR disabled.";
-            AppendActivityLog(appLog, "OCR", status);
+                lastClipboardText.clear();
+#ifdef _WIN32
+                lastClipboardSequence = 0;
+#endif
+                status = cfg.watchClipboard
+                    ? "Clipboard watch enabled."
+                    : "Clipboard watch disabled.";
+                AppendActivityLog(appLog, "WATCH", status);
+            }
+            ImGui::TextDisabled(
+                "Sift copied logs automatically.");
+
+            ImGui::TableNextColumn();
+            ImGui::TextColored(
+                ImVec4(0.25f, 0.88f, 0.78f, 1.0f),
+                "OCR / IMAGES");
+            if (ImGui::Checkbox(
+                    "OCR images##automation",
+                    &cfg.ocrEnabled)) {
+#ifdef _WIN32
+                gTrayOcrEnabled = cfg.ocrEnabled;
+#elif defined(__APPLE__)
+                LogSiftMacTraySetOcr(cfg.ocrEnabled);
+#endif
+                status = cfg.ocrEnabled
+                    ? "OCR enabled."
+                    : "OCR disabled.";
+                AppendActivityLog(appLog, "OCR", status);
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!cfg.ocrEnabled);
+            ImGui::Checkbox(
+                "Auto-scan##images", &cfg.autoScanImages);
+            ImGui::EndDisabled();
+            ImGui::TextDisabled(
+                cfg.autoScanImages
+                    ? "Clipboard images scan immediately."
+                    : "Clipboard images ask first.");
+
+            ImGui::TableNextColumn();
+            ImGui::TextColored(
+                ImVec4(1.00f, 0.82f, 0.25f, 1.0f),
+                "FAST PATH");
+            ImGui::Checkbox(
+                "Structured compiler logs##automation",
+                &cfg.preferFastPath);
+            ImGui::TextDisabled(
+                "Skip the model when extraction is deterministic.");
+
+            ImGui::EndTable();
         }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!cfg.ocrEnabled);
-        ImGui::Checkbox("Auto-scan images", &cfg.autoScanImages);
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::TextDisabled(cfg.autoScanImages
-            ? "Clipboard images start OCR immediately."
-            : "Clipboard images ask before OCR starts.");
 
-        ImGui::Checkbox("Fast path structured compiler logs", &cfg.preferFastPath);
-        ImGui::SameLine();
-        ImGui::TextDisabled("Skips the model when deterministic extraction is sufficient.");
-
-        ImGui::TextUnformatted("Include");
+        ImGui::SeparatorText("FILTER OUTPUT");
+        ImGui::TextDisabled("Include");
         ImGui::SameLine();
         ColoredCheckbox("Errors / Fatal", &cfg.showErrors,
             ImVec4(1.00f, 0.38f, 0.38f, 1.0f));
