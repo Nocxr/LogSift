@@ -4270,7 +4270,11 @@ int main(int argc, char** argv) {
                 ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y;
             const float inputEditorHeight = std::max(
                 120.0f, ImGui::GetContentRegionAvail().y - paneActionReserve);
-            ImGui::InputTextMultiline("##input", &input, {-1, inputEditorHeight});
+            if (ImGui::InputTextMultiline(
+                    "##input", &input, {-1, inputEditorHeight})) {
+                inputSourceKind = "Manual";
+                recentCursor = -1;
+            }
 
             const bool canSend =
                 !busy && !input.empty() && !cfg.endpoint.empty() && !cfg.model.empty();
