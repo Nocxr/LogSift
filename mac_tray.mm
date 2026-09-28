@@ -127,3 +127,40 @@ extern "C" void LogSiftMacTraySetWatch(bool enabled) {
 extern "C" long long LogSiftMacClipboardChangeCount(void) {
     return (long long)[[NSPasteboard generalPasteboard] changeCount];
 }
+
+
+static NSString* LogSiftLaunchAgentPath(void) {
+    NSString* launchAgents = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/LaunchAgents"];
+    return [launchAgents stringByAppendingPathComponent:@"com.nocxr.logsift.plist"];
+}
+
+extern "C" bool LogSiftMacGetStartAtLogin(void) {
+    return [[NSFileManager defaultManager] fileExistsAtPath:LogSiftLaunchAgentPath()];
+}
+
+extern "C" bool LogSiftMacSetStartAtLogin(bool enabled) {
+    NSFileManager* fm = [NSFileManager defaultManager];
+    NSString* plistPath = LogSiftLaunchAgentPath();
+    if (!enabled) {
+        if (![fm fileExistsAtPath:plistPath]) return true;
+        return [fm removeItemAtPath:plistPath error:nil];
+    }
+
+    NSString* launchAgents = [plistPath stringByDeletingLastPathComponent];
+    if (![fm createDirectoryAtPath:launchAgents
+       withIntermediateDirectories:YES
+                        attributes:nil
+                             error:nil]) {
+        return false;
+    }
+
+    NSString* bundlePath = [[NSBundle mainBundle] bundlePath];
+    if (!bundlePath || bundlePath.length == 0) return false;
+
+    NSDictionary* plist = @{
+        @"Label": @"com.nocxr.logsift",
+        @"ProgramArguments": @[@"/usr/bin/open", @"-g", bundlePath],
+        @"RunAtLoad": @YES
+    };
+    return [plist writeToFile:plistPath atomically:YES];
+}
