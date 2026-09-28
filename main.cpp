@@ -4982,6 +4982,29 @@ int main(int argc, char** argv) {
                 }
 
                 ImGui::Spacing();
+                ImGui::TextColored(
+                    ImVec4(0.28f, 0.82f, 1.00f, 1.0f),
+                    "Image Detected");
+                ImGui::TextDisabled(
+                    "Shown for clipboard images when OCR is enabled and Auto-scan images is off.");
+                if (ImGui::BeginTable(
+                        "##image_detected_popup_content", 3,
+                        ImGuiTableFlags_SizingStretchSame)) {
+                    ImGui::TableNextColumn();
+                    ImGui::Checkbox(
+                        "Image details##ocr_prompt",
+                        &cfg.ocrPromptShowImageDetails);
+                    ImGui::TableNextColumn();
+                    ImGui::Checkbox(
+                        "Timeout bar##ocr_prompt",
+                        &cfg.ocrPromptShowTimeoutBar);
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled(
+                        "Timeout: %.1f s", cfg.ocrPromptSeconds);
+                    ImGui::EndTable();
+                }
+
+                ImGui::Spacing();
                 ImGui::TextColored(ImVec4(0.30f, 0.90f, 0.48f, 1.0f), "Complete / Result");
                 if (ImGui::BeginTable("##result_popup_content", 3, ImGuiTableFlags_SizingStretchSame)) {
                     ImGui::TableNextColumn(); ImGui::Checkbox("Diagnostic total##result", &cfg.resultShowDiagnosticTotal);
