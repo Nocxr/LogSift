@@ -4381,7 +4381,7 @@ int main(int argc, char** argv) {
                     int contentHeight = 78; // shared popup frame; content adds the rest
                     if (sizingScanLayout) {
                         if (cfg.scanShowProgress)
-                            contentHeight += sizingChunking ? 54 : 34;
+                            contentHeight += sizingOcrPrompt ? 44 : (sizingChunking ? 54 : 34);
 
                         const bool hasScanStats =
                             !sizingAcknowledgement && !sizingOcrPrompt &&
@@ -4407,6 +4407,7 @@ int main(int argc, char** argv) {
                         }
                         if (!toastProcessing &&
                             toastOutcome != ToastOutcome::Cancelled &&
+                            toastOutcome != ToastOutcome::OcrPrompt &&
                             cfg.resultShowLifetimeBar)
                             contentHeight += 14;
                     } else {
@@ -4647,6 +4648,7 @@ int main(int argc, char** argv) {
                     }
 
                     if (!acknowledgementToast &&
+                        toastOutcome != ToastOutcome::OcrPrompt &&
                         (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
                          cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
                          cfg.scanShowBytesReduction || cfg.scanShowElapsedTime)) {
@@ -4721,7 +4723,10 @@ int main(int argc, char** argv) {
 
                     if (stats.ocr.present) {
                         ToastDisclosureRow(
-                            "scan_ocr_stats", "OCR pass", toastOcrStatsExpanded, outcomeColor);
+                            "scan_ocr_stats",
+                            toastOutcome == ToastOutcome::OcrPrompt ? "Image" : "OCR pass",
+                            toastOcrStatsExpanded,
+                            outcomeColor);
                         if (toastOcrStatsExpanded &&
                             ImGui::BeginTable("##scan_ocr_popup_stats", 2,
                                 ImGuiTableFlags_SizingStretchProp)) {
@@ -5026,8 +5031,12 @@ int main(int argc, char** argv) {
                     ImGui::SetCursorPosX(std::max(
                         ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
-                    if (ImGui::Button("Open", {openW, buttonH}))
-                        reopenMainWindow();
+                    if (ImGui::Button("Open", {openW, buttonH})) {
+                        SDL_ShowWindow(window);
+                        SDL_RaiseWindow(window);
+                        AppendActivityLog(appLog, "UI",
+                            "Main window opened from OCR confirmation.");
+                    }
                     ImGui::SameLine(0.0f, gap);
                     ImGui::BeginDisabled(!pendingOcrImageReady);
                     if (ImGui::Button("Start OCR", {startOcrW, buttonH}) &&
