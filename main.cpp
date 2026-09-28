@@ -22,6 +22,8 @@
 #include <atomic>
 #include <memory>
 #include <functional>
+#include <ctime>
+#include <iomanip>
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
@@ -342,6 +344,32 @@ void ApplyLogSiftStyle() {
     c[ImGuiCol_ResizeGrip]        = ImVec4(0.14f, 0.50f, 0.68f, 0.35f);
     c[ImGuiCol_ResizeGripHovered] = ImVec4(0.18f, 0.67f, 0.90f, 0.70f);
     c[ImGuiCol_TextSelectedBg]    = ImVec4(0.10f, 0.38f, 0.56f, 0.60f);
+}
+
+std::string ActivityClockTime() {
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    std::ostringstream out;
+    out << std::put_time(&local, "%H:%M:%S");
+    return out.str();
+}
+
+void AppendActivityLog(std::string& log, const char* level, const std::string& message) {
+    log += "[" + ActivityClockTime() + "] [" + level + "] " + message + "\n";
+
+    // Keep the in-app activity log useful without allowing it to grow forever.
+    constexpr size_t kMaxActivityLogBytes = 256 * 1024;
+    if (log.size() > kMaxActivityLogBytes) {
+        const size_t trimTarget = log.size() - (kMaxActivityLogBytes * 3 / 4);
+        const size_t nextLine = log.find('\n', trimTarget);
+        if (nextLine != std::string::npos)
+            log.erase(0, nextLine + 1);
+    }
 }
 
 std::filesystem::path UserDataDir() {
@@ -1639,7 +1667,7 @@ std::vector<std::string> DiagnosticEntries(const std::string& text) {
 }
 
 void DrawDiagnosticEntries(const char* id, const std::string& text, float height,
-    std::string& status, std::string& lastClipboardText) {
+    std::string& status, std::string& lastClipboardText, std::string& appLog) {
     ImGui::BeginChild(id, {-1, height}, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
     const auto entries = DiagnosticEntries(text);
     if (entries.empty()) ImGui::TextDisabled("No entries.");
@@ -1662,8 +1690,10 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
         ImGui::SetCursorScreenPos(topLeft);
         ImGui::SetNextItemAllowOverlap();
         if (ImGui::InvisibleButton("##entry_click", {std::max(1.0f, bottomRight.x - topLeft.x), std::max(ImGui::GetTextLineHeightWithSpacing(), bottomRight.y - topLeft.y)})) {
-            if (SetOwnedClipboardText(entry, &lastClipboardText))
+            if (SetOwnedClipboardText(entry, &lastClipboardText)) {
                 status = "Copied diagnostic entry to clipboard.";
+                AppendActivityLog(appLog, "COPY", "Individual diagnostic copied.");
+            }
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -1793,7 +1823,10 @@ int main(int argc, char** argv) {
     std::string lastSavedConfig = ConfigToJson(cfg).dump();
 
     std::string input, output, questionableOutput, prompt = kDefaultPrompt, status = "Paste text or drop a log file.";
-    std::string appLog = "Log Sift started.\\n";
+    std::string appLog;
+    AppendActivityLog(appLog, "INFO", "Log Sift started.");
+    AppendActivityLog(appLog, "CONFIG", "Endpoint: " + cfg.endpoint + " | Model: " + cfg.model);
+    AppendActivityLog(appLog, "CONFIG", std::string("Clipboard watch: ") + (cfg.watchClipboard ? "on" : "off"));
     bool showAppLog = false;
     std::string lastClipboardText;
 #ifdef _WIN32
@@ -1849,13 +1882,19 @@ int main(int argc, char** argv) {
 #endif
 
     auto startHealthCheck = [&](bool startupSequence, bool warnIfUnreachable) {
-        if (checkingHealth) return;
+        if (checkingHealth) {
+            AppendActivityLog(appLog, "HEALTH", "Health check already in progress.");
+            return;
+        }
         startupConnectionSequence = startupSequence;
         warnOnHealthFailure = warnIfUnreachable;
         connectionStage = ConnectionStage::Checking;
         health = "Checking model...";
         if (startupSequence) benchmarkStatus = "Waiting for health check...";
         checkingHealth = true;
+        AppendActivityLog(appLog, "HEALTH",
+            std::string(startupSequence ? "Startup" : warnIfUnreachable ? "Window-open" : "Manual") +
+            " model health check started.");
         const Config capturedCfg = cfg;
         healthRequest = std::async(std::launch::async,
             [capturedCfg] { return CheckModel(capturedCfg); });
@@ -1864,6 +1903,7 @@ int main(int argc, char** argv) {
     auto reopenMainWindow = [&]() {
         SDL_ShowWindow(window);
         SDL_RaiseWindow(window);
+        AppendActivityLog(appLog, "UI", "Main window opened; rechecking model health.");
         startHealthCheck(false, true);
     };
 
@@ -1880,10 +1920,12 @@ int main(int argc, char** argv) {
             LogSiftMacTraySetWatch(cfg.watchClipboard);
             lastClipboardText.clear();
             status=cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            AppendActivityLog(appLog, "WATCH", status);
         }
         if (LogSiftMacTrayTakeCopy() && !output.empty()) {
             SetOwnedClipboardText(output, &lastClipboardText);
             status="Result copied from menu bar.";
+            AppendActivityLog(appLog, "COPY", "Result copied from macOS menu bar.");
         }
         if (LogSiftMacTrayTakeQuit()) running=false;
 #endif
@@ -1907,6 +1949,7 @@ int main(int argc, char** argv) {
 #endif
             lastClipboardText.clear();
             status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            AppendActivityLog(appLog, "WATCH", status);
         }
         if (gTrayCopyRequested) {
             gTrayCopyRequested = false;
@@ -1915,6 +1958,7 @@ int main(int argc, char** argv) {
                 lastClipboardSequence = GetClipboardSequenceNumber();
                 gClipboardUpdatePending = false;
                 status = "Result copied from tray.";
+                AppendActivityLog(appLog, "COPY", "Result copied from Windows tray.");
             }
         }
         if (gTrayExitRequested) running = false;
@@ -1984,6 +2028,8 @@ int main(int argc, char** argv) {
                 && clip != lastClipboardText
 #endif
             ) {
+                AppendActivityLog(appLog, "CLIPBOARD",
+                    "Clipboard change detected (" + std::to_string(clip.size()) + " bytes).");
                 lastClipboardText = clip;
                 ++requestGeneration;
                 output.clear();
@@ -2013,6 +2059,7 @@ int main(int argc, char** argv) {
                     stats.seconds = 0.0;
                     stats.route = "Local prefilter";
                     status = "Clipboard log scanned - no diagnostics found.";
+                    AppendActivityLog(appLog, "SIFT", "Clipboard scan complete: no actionable diagnostics.");
                     toastText = "Nothing found";
                     toastProcessing = false;
                     toastOutcome = ToastOutcome::Empty;
@@ -2048,6 +2095,11 @@ int main(int argc, char** argv) {
                         if (autoCopied) markOwnClipboardWrite();
                         toastAutoCopied = autoCopied;
                         status = autoCopied ? "Clipboard log parsed and result auto-copied." : "Clipboard log parsed.";
+                        AppendActivityLog(appLog, "SUCCESS",
+                            "Deterministic clipboard sift completed with " +
+                            std::to_string(DiagnosticEntries(output).size()) + " diagnostics.");
+                        if (autoCopied)
+                            AppendActivityLog(appLog, "AUTO-COPY", "Actionable clipboard result auto-copied.");
                         toastText = "Complete";
                         toastProcessing = false;
                         toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
@@ -2059,6 +2111,7 @@ int main(int argc, char** argv) {
                         const std::string capturedInput = input;
                         const std::string capturedPrompt = prompt;
                         status = "Clipboard log detected - sifting...";
+                        AppendActivityLog(appLog, "LLM", "Clipboard log sent to model for sifting.");
                         activeRequestGeneration = requestGeneration;
                         activeProgress = std::make_shared<SiftProgress>();
                         const int initialChunks = static_cast<int>(ChunkModelInput(previewFiltered).size());
@@ -2067,6 +2120,8 @@ int main(int argc, char** argv) {
                         if (initialChunks > 1) {
                             status = "Large clipboard log - chunking " + std::to_string(initialChunks) +
                                 " model chunks; this may take longer.";
+                            AppendActivityLog(appLog, "CHUNK",
+                                "Large clipboard log split into " + std::to_string(initialChunks) + " model chunks.");
                         }
                         busy = true;
                         request = std::async(std::launch::async,
@@ -2135,9 +2190,17 @@ int main(int argc, char** argv) {
                     if (result.usedLocalFallback) {
                         status = std::string("Model online - local filter used. ") + result.note;
                         if (autoCopied) status += " Result auto-copied.";
+                        AppendActivityLog(appLog, "MODEL-FALLBACK",
+                            "Model responded but local fallback was used. " + result.note);
                     } else {
                         status = autoCopied ? "Done - result auto-copied." : "Done.";
+                        AppendActivityLog(appLog, "SUCCESS",
+                            "Model sift completed via " + result.route + " with " +
+                            std::to_string(DiagnosticEntries(output).size()) + " diagnostics in " +
+                            std::to_string(lastResponseSeconds) + " s.");
                     }
+                    if (autoCopied)
+                        AppendActivityLog(appLog, "AUTO-COPY", "Actionable sift result auto-copied.");
 
                     if (cfg.watchClipboard) {
                         toastText = result.usedLocalFallback ? "Model fallback" : "Complete";
@@ -2191,6 +2254,11 @@ int main(int argc, char** argv) {
                     status = std::string(fallbackName) +
                         (autoCopied ? " - local result auto-copied. " : " - local filter used. ") +
                         e.what();
+                    AppendActivityLog(appLog,
+                        endpointUnavailable ? "OFFLINE" : "MODEL-FAIL",
+                        std::string(fallbackName) + ": " + e.what());
+                    if (autoCopied)
+                        AppendActivityLog(appLog, "AUTO-COPY", "Fallback diagnostics auto-copied.");
 
                     if (cfg.toastSound) {
                         PlaySynthPreset(
@@ -2226,6 +2294,7 @@ int main(int argc, char** argv) {
             checkingHealth = false;
 
             if (!online) {
+                AppendActivityLog(appLog, "HEALTH", "Model endpoint unreachable: " + health);
                 connectionStage = ConnectionStage::Unreachable;
                 benchmarkStatus = startupConnectionSequence
                     ? "Startup benchmark skipped - model unreachable"
@@ -2234,6 +2303,7 @@ int main(int argc, char** argv) {
                     status = "WARNING: model endpoint is unreachable; local filtering will be used.";
                 startupConnectionSequence = false;
             } else if (startupConnectionSequence) {
+                AppendActivityLog(appLog, "HEALTH", "Model endpoint reachable; loading model list.");
                 connectionStage = ConnectionStage::LoadingModels;
                 benchmarkStatus = "Loading model list...";
                 loadingModels = true;
@@ -2242,6 +2312,7 @@ int main(int argc, char** argv) {
                     [capturedCfg] { return ListModels(capturedCfg); });
             } else {
                 connectionStage = ConnectionStage::Ready;
+                AppendActivityLog(appLog, "HEALTH", "Model endpoint reachable.");
                 if (warnOnHealthFailure)
                     status = "Model endpoint reachable.";
             }
@@ -2259,17 +2330,21 @@ int main(int argc, char** argv) {
             loadingModels = false;
 
             if (!modelsLoaded) {
+                AppendActivityLog(appLog, "MODELS", "Model discovery failed or returned no models.");
                 connectionStage = ConnectionStage::ModelsFailed;
                 if (startupConnectionSequence)
                     benchmarkStatus = "Startup benchmark skipped - model list unavailable";
                 startupConnectionSequence = false;
             } else if (startupConnectionSequence) {
+                AppendActivityLog(appLog, "MODELS",
+                    "Discovered " + std::to_string(availableModels.size()) + " model(s).");
                 if (std::find(availableModels.begin(), availableModels.end(), cfg.model) ==
                     availableModels.end()) {
                     cfg.model = availableModels.front();
                 }
                 connectionStage = ConnectionStage::Benchmarking;
                 benchmarkStatus = "Benchmarking selected model...";
+                AppendActivityLog(appLog, "BENCH", "Startup benchmark started for " + cfg.model + ".");
                 benchmarking = true;
                 const Config capturedCfg = cfg;
                 benchmarkRequest = std::async(std::launch::async,
@@ -2290,12 +2365,14 @@ int main(int argc, char** argv) {
         if (benchmarking && benchmarkRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             try {
                 benchmarkStatus = benchmarkRequest.get();
+                AppendActivityLog(appLog, "BENCH", benchmarkStatus);
                 connectionStage = ConnectionStage::Ready;
                 health = "Online - model available";
                 if (startupConnectionSequence)
                     status = "Ready - health check, model discovery, and benchmark complete.";
             } catch (const std::exception& e) {
                 benchmarkStatus = std::string("Benchmark failed: ") + e.what();
+                AppendActivityLog(appLog, "BENCH-FAIL", benchmarkStatus);
                 connectionStage = ConnectionStage::BenchmarkFailed;
                 health = "Online - benchmark failed";
             }
@@ -2339,6 +2416,7 @@ int main(int argc, char** argv) {
         if (ImGui::Button(loadingModels ? "Refreshing Models..." : "Refresh Models")) {
             const Config capturedCfg = cfg;
             loadingModels = true;
+            AppendActivityLog(appLog, "MODELS", "Manual model refresh started.");
             startupConnectionSequence = false;
             connectionStage = ConnectionStage::LoadingModels;
             modelListRequest = std::async(std::launch::async,
@@ -2363,6 +2441,7 @@ int main(int argc, char** argv) {
         if (ImGui::Button(benchmarking ? "Benchmarking..." : "Benchmark")) {
             const Config capturedCfg = cfg;
             benchmarking = true;
+            AppendActivityLog(appLog, "BENCH", "Manual benchmark started for " + cfg.model + ".");
             startupConnectionSequence = false;
             connectionStage = ConnectionStage::Benchmarking;
             benchmarkStatus = "Benchmarking...";
@@ -2452,6 +2531,7 @@ int main(int argc, char** argv) {
             lastClipboardSequence = 0;
 #endif
             status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            AppendActivityLog(appLog, "WATCH", status);
         }
         ImGui::SameLine();
         ImGui::TextDisabled("Automatically sifts copied text that looks like a log, including unknown formats.");
@@ -2563,8 +2643,15 @@ int main(int argc, char** argv) {
                     status = autoCopied
                         ? "Done - deterministic result auto-copied."
                         : "Done - deterministic fast path.";
+                    AppendActivityLog(appLog, "SUCCESS",
+                        "Manual deterministic sift completed with " +
+                        std::to_string(DiagnosticEntries(output).size()) + " diagnostics.");
+                    if (autoCopied)
+                        AppendActivityLog(appLog, "AUTO-COPY", "Actionable manual result auto-copied.");
                 } else {
                     status = "Sending to model...";
+                    AppendActivityLog(appLog, "LLM",
+                        "Manual sift sent to model (" + std::to_string(input.size()) + " input bytes).");
                     ++requestGeneration;
                     activeRequestGeneration = requestGeneration;
                     busy = true;
@@ -2575,6 +2662,8 @@ int main(int argc, char** argv) {
                     if (initialChunks > 1) {
                         status = "Large log - chunking " + std::to_string(initialChunks) +
                             " model chunks; this may take longer.";
+                        AppendActivityLog(appLog, "CHUNK",
+                            "Manual log split into " + std::to_string(initialChunks) + " model chunks.");
                     }
                     request = std::async(std::launch::async,
                         [capturedCfg, capturedInput, capturedPrompt, progress = activeProgress] {
@@ -2621,10 +2710,12 @@ int main(int argc, char** argv) {
                     const float resultHeight =
                         std::max(100.0f, ImGui::GetContentRegionAvail().y - 38.0f);
                     DrawDiagnosticEntries("##included_entries", output,
-                        resultHeight, status, lastClipboardText);
+                        resultHeight, status, lastClipboardText, appLog);
                     ImGui::BeginDisabled(output.empty());
-                    if (ImGui::Button("Copy Result"))
+                    if (ImGui::Button("Copy Result")) {
                         SetOwnedClipboardText(output, &lastClipboardText);
+                        AppendActivityLog(appLog, "COPY", "Result copied from main window.");
+                    }
                     ImGui::EndDisabled();
                     ImGui::SameLine();
                     if (ImGui::Button("Clear")) {
@@ -2652,7 +2743,7 @@ int main(int argc, char** argv) {
                         std::max(100.0f, ImGui::GetContentRegionAvail().y - 6.0f);
                     DrawDiagnosticEntries("##questionable_entries",
                         questionableOutput, questionableHeight,
-                        status, lastClipboardText);
+                        status, lastClipboardText, appLog);
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
@@ -2678,6 +2769,7 @@ int main(int argc, char** argv) {
                         status = "Could not update start-at-login setting.";
                     } else {
                         status = startAtLogin ? "Log Sift will start at login." : "Start at login disabled.";
+                        AppendActivityLog(appLog, "SETTINGS", status);
                     }
                 }
                 ImGui::Checkbox("Auto-copy actionable results", &cfg.autoCopyResults);
@@ -2790,7 +2882,7 @@ int main(int argc, char** argv) {
         if (showAppLog) {
             ImGui::SetNextWindowSize({760, 300}, ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Log Sift Output", &showAppLog)) {
-                ImGui::TextDisabled("App activity / requests / model operations - grave key toggles");
+                ImGui::TextDisabled("Live activity: health, models, LLM requests, chunking, copies, fallbacks, success/failure - grave key toggles");
                 if (ImGui::Button("Clear Log")) appLog.clear();
                 ImGui::Separator();
                 ImGui::InputTextMultiline("##applog", &appLog, {-1, -1}, ImGuiInputTextFlags_ReadOnly);
@@ -3018,6 +3110,7 @@ int main(int argc, char** argv) {
                     lastClipboardSequence = GetClipboardSequenceNumber();
 #endif
                     status = "Result copied.";
+                    AppendActivityLog(appLog, "COPY", "Result copied from notification.");
                     toastText.clear();
                 }
                 ImGui::EndDisabled();
