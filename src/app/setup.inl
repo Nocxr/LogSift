@@ -121,11 +121,8 @@
     auto& toastOcrStatsExpanded = app.toastOcrStatsExpanded;
     auto& toastPreviewExpanded = app.toastPreviewExpanded;
     auto& toastTimerPaused = app.popupTimer.paused;
-    auto& toastMouseWasOver = app.popupTimer.mouseWasOver;
     auto& toastResumeRequested = app.popupTimer.resumeRequested;
     auto& toastPausedRemaining = app.popupTimer.pausedRemaining;
-    auto& toastMouseLeftAt = app.popupTimer.mouseLeftAt;
-    auto& toastPauseToastShownAt = app.popupTimer.lastShownAt;
     auto& toastOutcome = app.toastOutcome;
     auto& toastShownAt = app.toastShownAt;
     auto& request = app.request;
