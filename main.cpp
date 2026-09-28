@@ -744,7 +744,12 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
         {"model", cfg.model},
         {"messages", json::array({
             {{"role", "system"}, {"content", prompt}},
-            {{"role", "user"}, {"content", std::string("Select the highest-value diagnostics from these candidate log lines. Output at most 12 lines, verbatim.\n\n") + modelInput}}
+            {{"role", "user"}, {"content",
+                std::string("Select the highest-value diagnostics from these candidate log lines. Output at most 12 lines, verbatim.\n\n") +
+                modelInput +
+                ((cfg.model.find("qwen3") != std::string::npos || cfg.model.find("Qwen3") != std::string::npos)
+                    ? "\n/no_think"
+                    : "")}}
         })},
         {"temperature", 0},
         {"max_tokens", 256}
@@ -773,8 +778,18 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
     if (response.contains("choices") && !response["choices"].empty()) {
         const auto& message = response["choices"][0]["message"];
         std::string content = message.value("content", "");
-        if (content.empty()) content = message.value("reasoning_content", "");
-        if (content.empty()) content = message.value("reasoning", "");
+        if (content.empty()) {
+            const std::string finishReason = response["choices"][0].value("finish_reason", "");
+            const bool hasReasoning =
+                !message.value("reasoning_content", "").empty() ||
+                !message.value("reasoning", "").empty();
+            if (hasReasoning) {
+                throw std::runtime_error(
+                    finishReason == "length"
+                        ? "Model exhausted its output budget in reasoning before returning diagnostics."
+                        : "Model returned reasoning without a final diagnostic response.");
+            }
+        }
         if (!content.empty()) {
             SiftResult result;
             std::istringstream filteredOut(content);
