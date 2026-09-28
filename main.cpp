@@ -45,6 +45,7 @@ extern "C" void LogSiftMacTraySetAutoCopy(bool enabled);
 extern "C" long long LogSiftMacClipboardChangeCount(void);
 extern "C" bool LogSiftMacGetStartAtLogin(void);
 extern "C" bool LogSiftMacSetStartAtLogin(bool enabled);
+extern "C" bool LogSiftMacActivateExistingInstance(void);
 #endif
 
 namespace {
@@ -52,7 +53,9 @@ using json = nlohmann::json;
 
 #ifdef _WIN32
 constexpr UINT kTrayMessage = WM_APP + 42;
+constexpr UINT kSingleInstanceMessage = WM_APP + 43;
 constexpr UINT kTrayId = 1;
+HANDLE gSingleInstanceMutex = nullptr;
 HWND gTrayHwnd = nullptr;
 NOTIFYICONDATAW gTrayIcon{};
 bool gTrayRestoreRequested = false;
@@ -148,6 +151,10 @@ HICON CreateLogSiftHIcon(int size) {
 }
 
 LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == kSingleInstanceMessage) {
+        gTrayRestoreRequested = true;
+        return 0;
+    }
     if (msg == WM_CLIPBOARDUPDATE) {
         if (gIgnoreNextClipboardUpdate) {
             gIgnoreNextClipboardUpdate = false;
@@ -1935,6 +1942,28 @@ int main(int argc, char** argv) {
         }
         return result.empty() ? 1 : 0;
     }
+#ifdef _WIN32
+    gSingleInstanceMutex = CreateMutexW(
+        nullptr, FALSE, L"Local\\Nocxr.LogSift.SingleInstance");
+    if (gSingleInstanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        for (int attempt = 0; attempt < 40; ++attempt) {
+            HWND existingTray = FindWindowExW(
+                HWND_MESSAGE, nullptr, L"LogSiftTrayWindow", L"Log Sift Tray");
+            if (existingTray) {
+                PostMessageW(existingTray, kSingleInstanceMessage, 0, 0);
+                break;
+            }
+            Sleep(50);
+        }
+        CloseHandle(gSingleInstanceMutex);
+        gSingleInstanceMutex = nullptr;
+        return 0;
+    }
+#elif defined(__APPLE__)
+    if (LogSiftMacActivateExistingInstance())
+        return 0;
+#endif
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) return 1;
     // Keep the notification device alive for the whole process. This avoids
     // repeatedly opening/closing Bluetooth or USB headset paths for tiny UI sounds.
@@ -3358,8 +3387,6 @@ int main(int argc, char** argv) {
                             }
                         }
                     } else {
-                        if (toastOutcome == ToastOutcome::Cancelled)
-                            contentHeight += 12; // keep scan-style separator/action spacing
                         if (cfg.resultShowDiagnosticTotal) contentHeight += 22;
                         if (cfg.resultShowFallbackNotice &&
                             (toastOutcome == ToastOutcome::OfflineFallback ||
@@ -3469,9 +3496,12 @@ int main(int argc, char** argv) {
                     toastProcessing && activeProgress && activeProgress->chunking.load();
                 if (chunkingNow)
                     outcomeColor = ImVec4(0.96f, 0.60f, 0.20f, 1.0f);
+                const bool acknowledgementToast =
+                    !toastProcessing && toastOutcome == ToastOutcome::Processing;
                 const char* outcomeLabel = toastProcessing
                     ? (chunkingNow ? "LOG SIFT - CHUNKING LARGE LOG" : "LOG SIFT - SCANNING")
-                    : toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
+                    : acknowledgementToast ? "LOG SIFT - CLIPBOARD DETECTED" :
+                    toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
                     toastOutcome == ToastOutcome::OfflineFallback ? "LOG SIFT - OFFLINE FALLBACK" :
                     toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL RESPONSE FALLBACK" :
@@ -3594,6 +3624,8 @@ int main(int argc, char** argv) {
                             ImGui::EndTable();
                         }
                     }
+                } else if (acknowledgementToast) {
+                    ImGui::TextDisabled("Clipboard change acknowledged.");
                 } else {
                     if (cfg.resultShowDiagnosticTotal)
                         ImGui::TextColored(outcomeColor, "%zu diagnostic%s",
@@ -3800,9 +3832,14 @@ int main(int argc, char** argv) {
                     ImGui::SameLine(0.0f, gap);
                     if (ImGui::Button("Cancel", {cancelW, buttonH}))
                         cancelActiveSift("notification");
+                } else if (acknowledgementToast) {
+                    ImGui::Separator();
+                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
+                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - dismissW));
+                    if (ImGui::Button("Dismiss", {dismissW, buttonH}))
+                        toastText.clear();
                 } else if (toastOutcome == ToastOutcome::Cancelled) {
                     ImGui::Separator();
-                    ImGui::Spacing();
                     const float totalW = openW + dismissW + gap;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
@@ -3847,8 +3884,11 @@ int main(int argc, char** argv) {
                             std::chrono::duration<float>(toastPausedRemaining).count())
                         : std::max(0.0f,
                             std::chrono::duration<float>(toastUntil - nowToast).count());
-                    const float fraction = cfg.toastSeconds > 0.0f
-                        ? std::clamp(remaining / cfg.toastSeconds, 0.0f, 1.0f)
+                    const float toastLifetimeSeconds = acknowledgementToast
+                        ? 1.8f
+                        : cfg.toastSeconds;
+                    const float fraction = toastLifetimeSeconds > 0.0f
+                        ? std::clamp(remaining / toastLifetimeSeconds, 0.0f, 1.0f)
                         : 0.0f;
                     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
                     ImGui::ProgressBar(fraction, {-1, 4}, "");
@@ -3913,5 +3953,11 @@ int main(int argc, char** argv) {
     SDL_DestroyWindow(window);
     ShutdownNotificationAudio();
     SDL_Quit();
+#ifdef _WIN32
+    if (gSingleInstanceMutex) {
+        CloseHandle(gSingleInstanceMutex);
+        gSingleInstanceMutex = nullptr;
+    }
+#endif
     return 0;
 }
