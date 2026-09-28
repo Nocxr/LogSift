@@ -2017,15 +2017,11 @@ int main(int argc, char** argv) {
             benchmarking = false;
         }
 
-        const bool asyncActiveForMain =
-            busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool mainVisibleForFrame =
             (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
-        const bool uiBurstActive =
-            mainVisibleForFrame &&
-            (std::chrono::steady_clock::now() - lastUiActivity < std::chrono::milliseconds(1200));
-        const bool mainNeedsFrame = mainDirty || asyncActiveForMain || uiBurstActive;
-        if (mainNeedsFrame) {
+        // Keep this deliberately simple: if the main window is visible, render it
+        // every frame at 60 FPS. If it is hidden, never build or present a main UI frame.
+        if (mainVisibleForFrame) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -2612,21 +2608,16 @@ int main(int argc, char** argv) {
 
         const bool asyncActive = busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool mainVisible = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
-        const bool uiRecentlyActive =
-            std::chrono::steady_clock::now() - lastUiActivity < std::chrono::milliseconds(900);
 
-        if (toastActive) {
+        if (mainVisible) {
+            SDL_Delay(16u); // visible main window: fixed ~60 FPS
+        } else if (toastActive) {
             const Uint32 frameMs = static_cast<Uint32>(std::max(1, 1000 / std::max(1, cfg.toastFps)));
             SDL_Delay(frameMs);
         } else if (asyncActive) {
-            SDL_Delay(mainVisible ? 33u : 75u);
-        } else if (uiRecentlyActive && mainVisible) {
-            SDL_Delay(16u);
+            SDL_Delay(75u);
         } else {
-            // Idle means idle: wake just often enough to process SDL/menu events
-            // and the lightweight macOS pasteboard changeCount check. No ImGui
-            // frame or GPU present occurs unless something actually changed.
-            SDL_Delay(mainVisible ? 50u : 100u);
+            SDL_Delay(100u);
         }
     }
 
