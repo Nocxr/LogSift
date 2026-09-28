@@ -2820,6 +2820,7 @@ int main(int argc, char** argv) {
             lastClipboardSequence = clipboardSequence;
 #endif
             std::string clip;
+            std::string clipboardSourceKind = "Clipboard";
             ClipboardImage clipboardImage;
             bool clipboardHasImage = false;
 #ifdef _WIN32
@@ -2835,7 +2836,12 @@ int main(int argc, char** argv) {
 
                         if (ext == ".log" || ext == ".txt") {
                             std::ifstream lf(p, std::ios::binary);
-                            if (lf) { std::ostringstream ss; ss << lf.rdbuf(); clip = ss.str(); }
+                            if (lf) {
+                                std::ostringstream ss;
+                                ss << lf.rdbuf();
+                                clip = ss.str();
+                                clipboardSourceKind = "File";
+                            }
                         } else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
                             std::ifstream imageFile(p, std::ios::binary);
                             if (imageFile) {
@@ -2871,12 +2877,17 @@ int main(int argc, char** argv) {
                     lastInputBytes = 0;
                     lastFilteredBytes = 0;
                     stats = {};
+                    inputSourceKind = "OCR";
+                    stats.sourceKind = inputSourceKind;
                     stats.logType = "Image / OCR";
                     stats.profile = "Vision OCR";
                     stats.model = cfg.model;
                     stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
                     stats.inputBytes = clipboardImage.bytes.size();
                     stats.route = "Vision OCR";
+                    stats.ocr.present = true;
+                    stats.ocr.mimeType = clipboardImage.mimeType;
+                    stats.ocr.imageBytes = clipboardImage.bytes.size();
 
                     if (!visionSupportKnown || !visionSupported) {
                     status = visionSupportKnown
@@ -2947,6 +2958,8 @@ int main(int argc, char** argv) {
                 lastInputBytes = 0;
                 lastFilteredBytes = 0;
                 stats = {};
+                inputSourceKind = clipboardSourceKind;
+                stats.sourceKind = inputSourceKind;
                     if (cfg.toastAcknowledgeClipboard) {
                     toastText = "Clipboard detected";
                     toastProcessing = false;
@@ -3121,7 +3134,9 @@ int main(int argc, char** argv) {
                     const SiftResult result = request.get();
 
                     if (result.sourceWasImage) {
+                        inputSourceKind = "OCR";
                         input = result.sourceText;
+                        stats.sourceKind = inputSourceKind;
                         stats.logType = "Image / OCR";
                         stats.profile = input.empty() ? "Vision OCR" : ProfileName(input, cfg);
                         stats.model = cfg.model;
@@ -3139,6 +3154,14 @@ int main(int argc, char** argv) {
                         stats.estimatedFilteredTokens = EstimateTokenCount(ocrFiltered);
                         lastInputBytes = stats.inputBytes;
                         lastFilteredBytes = stats.filteredBytes;
+                        stats.ocr = result.ocr;
+                        if (stats.ocr.present) {
+                            const auto [ocrOutputLines, ocrOutputWords] =
+                                HumanTextStats(result.sourceText);
+                            stats.ocr.outputBytes = result.sourceText.size();
+                            stats.ocr.outputLines = ocrOutputLines;
+                            stats.ocr.outputWords = ocrOutputWords;
+                        }
                     }
 
                     output = ApplyOutputPreferences(result.text, cfg);
@@ -3569,14 +3592,28 @@ int main(int argc, char** argv) {
                 static_cast<double>(stats.inputBytes))
             : 0.0;
         ImGui::TextColored(ImVec4(0.45f,0.75f,1.0f,1.0f),
-            "Type: %s   Profile: %s   Route: %s   Compute: %s   Health: %s",
-            stats.logType.c_str(), stats.profile.c_str(), stats.route.c_str(),
+            "Source: %s   Type: %s   Profile: %s   Route: %s   Compute: %s   Health: %s",
+            stats.sourceKind.c_str(), stats.logType.c_str(), stats.profile.c_str(), stats.route.c_str(),
             cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto",
             health.c_str());
         ImGui::TextColored(ImVec4(0.45f,1.0f,0.55f,1.0f),
             "Input: %zu -> %zu bytes   Reduction: %.1f%%   Last: %.3f s   Prompt: %d tok   Output: %d tok",
             stats.inputBytes, stats.filteredBytes, reduction, stats.seconds,
             stats.promptTokens, stats.completionTokens);
+        if (stats.ocr.present) {
+            ImGui::TextColored(ImVec4(0.72f,0.62f,1.0f,1.0f),
+                "OCR pass: %zu image bytes -> %zu text bytes   %zu lines / %zu words   %.3f s   Prompt: %d tok   Output: %d tok",
+                stats.ocr.imageBytes, stats.ocr.outputBytes,
+                stats.ocr.outputLines, stats.ocr.outputWords,
+                stats.ocr.seconds, stats.ocr.promptTokens, stats.ocr.completionTokens);
+            if (stats.ocr.promptTokensPerSecond > 0.0 ||
+                stats.ocr.completionTokensPerSecond > 0.0) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("  %.0f prompt/s | %.0f output/s",
+                    stats.ocr.promptTokensPerSecond,
+                    stats.ocr.completionTokensPerSecond);
+            }
+        }
 
         const float workAreaHeight = std::max(260.0f, ImGui::GetContentRegionAvail().y - 2.0f);
         if (ImGui::BeginTable("##sift_work_area", 2,
@@ -3602,6 +3639,8 @@ int main(int argc, char** argv) {
                 questionableOutput.clear();
                 lastInputBytes = lastFilteredBytes = 0;
                 stats = {};
+                inputSourceKind = "Manual";
+                stats.sourceKind = inputSourceKind;
                 status = "Input cleared.";
             }
 
@@ -3628,6 +3667,7 @@ int main(int argc, char** argv) {
                     !split.included.empty() ? split.included : PreFilter(input, cfg);
                 lastInputBytes = input.size();
                 lastFilteredBytes = previewFiltered.size();
+                stats.sourceKind = inputSourceKind;
                 stats.logType = DetectLogType(input);
                 stats.profile = ProfileName(input, cfg);
                 stats.model = cfg.model;
@@ -3759,6 +3799,8 @@ int main(int argc, char** argv) {
                         questionableOutput.clear();
                         lastInputBytes = lastFilteredBytes = 0;
                         stats = {};
+                        inputSourceKind = "Manual";
+                        stats.sourceKind = inputSourceKind;
                         status = "Cleared.";
                     }
                     ImGui::EndTabItem();
