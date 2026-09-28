@@ -2193,127 +2193,188 @@ int main(int argc, char** argv) {
             ImGui::InputTextMultiline("##prompt", &prompt, {-1, 120});
         }
 
-        const float inputHeight = std::clamp(ImGui::GetContentRegionAvail().y * 0.26f, 120.0f, 220.0f);
-        ImGui::SeparatorText("Input");
-        const auto [inputLines, inputWords] = HumanTextStats(input);
-        ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes", inputLines, inputWords, input.size());
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear Input")) {
-            input.clear();
-            output.clear();
-            questionableOutput.clear();
-            lastInputBytes = lastFilteredBytes = 0;
-            stats = {};
-            status = "Input cleared.";
-        }
-        ImGui::InputTextMultiline("##input", &input, {-1, inputHeight});
-
-        const bool canSend = !busy && !input.empty() && !cfg.endpoint.empty() && !cfg.model.empty();
-        ImGui::BeginDisabled(!canSend);
-        if (ImGui::Button(busy ? "Sending..." : "Sift")) {
-            const Config capturedCfg = cfg;
-            const std::string capturedInput = input;
-            const std::string capturedPrompt = prompt;
-            const DiagnosticSplit split = LooksLikeUnrealLog(input) && (cfg.profileId=="auto" || cfg.profileId=="unreal") ? SplitUnrealDiagnostics(input, cfg) : SplitWithProfile(input, cfg);
-            questionableOutput = ApplyOutputPreferences(split.questionable, cfg);
-            const std::string previewFiltered = !split.included.empty() ? split.included : PreFilter(input, cfg);
-            lastInputBytes = input.size();
-            lastFilteredBytes = previewFiltered.size();
-            stats.logType = DetectLogType(input);
-                    stats.profile = ProfileName(input, cfg);
-            stats.inputBytes = input.size();
-            stats.filteredBytes = previewFiltered.size();
-            stats.route = (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
-            stats.promptTokens = 0;
-            stats.completionTokens = 0;
-            stats.promptTokensPerSecond = 0.0;
-            stats.completionTokensPerSecond = 0.0;
-            stats.estimatedPromptTokensPerSecond = 0.0;
-            requestStarted = std::chrono::steady_clock::now();
-            lastResponseSeconds = 0.0;
-            if (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
-                output = ApplyOutputPreferences(FastStructuredResult(previewFiltered), cfg);
-                lastResponseSeconds = std::chrono::duration<double>(
-                    std::chrono::steady_clock::now() - requestStarted).count();
-                stats.seconds = lastResponseSeconds;
-                const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
-                if (autoCopied) markOwnClipboardWrite();
-                status = autoCopied ? "Done - deterministic result auto-copied." : "Done - deterministic fast path.";
-            } else {
-                status = "Sending to model...";
-                ++requestGeneration;
-                activeRequestGeneration = requestGeneration;
-                busy = true;
-                request = std::async(std::launch::async, [capturedCfg, capturedInput, capturedPrompt] {
-                    return Send(capturedCfg, capturedInput, capturedPrompt);
-                });
-            }
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (busy) {
-            const double elapsed = std::chrono::duration<double>(
-                std::chrono::steady_clock::now() - requestStarted).count();
-            ImGui::Text("Elapsed: %.3f s", elapsed);
-            ImGui::SameLine();
-        }
-        if (lastInputBytes > 0) {
-            const double pct = 100.0 * static_cast<double>(lastFilteredBytes) / static_cast<double>(lastInputBytes);
-            ImGui::SameLine();
-            ImGui::TextDisabled("Prefilter: %zu -> %zu bytes", lastInputBytes, lastFilteredBytes);
-            ImGui::SameLine();
-            const ImVec4 reductionColor = pct <= 25.0
-                ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
-                : pct <= 60.0
-                    ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
-                    : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
-            ImGui::TextColored(reductionColor, "(%.1f%% retained / %.1f%% reduced)", pct, 100.0 - pct);
-        }
-
         ImGui::SeparatorText("PERFORMANCE / STATS");
-        if (ImGui::CollapsingHeader("Performance / Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
-            const double reduction = stats.inputBytes ? 100.0 * (1.0 - static_cast<double>(stats.filteredBytes) / static_cast<double>(stats.inputBytes)) : 0.0;
-            ImGui::TextColored(ImVec4(0.45f,0.75f,1.0f,1.0f), "Type: %s   Profile: %s   Route: %s   Compute: %s", stats.logType.c_str(), stats.profile.c_str(), stats.route.c_str(),
-                cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto");
-            ImGui::TextColored(ImVec4(0.45f,1.0f,0.55f,1.0f), "Input: %zu bytes   Prefiltered: %zu bytes   Reduction: %.1f%%", stats.inputBytes, stats.filteredBytes, reduction);
-            ImGui::TextColored(ImVec4(1.0f,0.80f,0.35f,1.0f), "Last sift: %.3f s   Benchmark: %s", stats.seconds, benchmarkStatus.c_str());
-            ImGui::Text("Prompt: %d tok   Output: %d tok", stats.promptTokens, stats.completionTokens);
-            if (stats.promptTokensPerSecond > 0.0 || stats.completionTokensPerSecond > 0.0) {
-                ImGui::Text("Prompt speed: %.1f tok/s   Generation: %.1f tok/s",
-                    stats.promptTokensPerSecond, stats.completionTokensPerSecond);
-            } else if (stats.estimatedPromptTokensPerSecond > 0.0) {
-                ImGui::Text("API did not report split throughput. Combined lower bound: %.1f prompt tok/s",
-                    stats.estimatedPromptTokensPerSecond);
+        const double reduction = stats.inputBytes
+            ? 100.0 * (1.0 - static_cast<double>(stats.filteredBytes) /
+                static_cast<double>(stats.inputBytes))
+            : 0.0;
+        ImGui::TextColored(ImVec4(0.45f,0.75f,1.0f,1.0f),
+            "Type: %s   Profile: %s   Route: %s   Compute: %s   Health: %s",
+            stats.logType.c_str(), stats.profile.c_str(), stats.route.c_str(),
+            cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto",
+            health.c_str());
+        ImGui::TextColored(ImVec4(0.45f,1.0f,0.55f,1.0f),
+            "Input: %zu -> %zu bytes   Reduction: %.1f%%   Last: %.3f s   Prompt: %d tok   Output: %d tok",
+            stats.inputBytes, stats.filteredBytes, reduction, stats.seconds,
+            stats.promptTokens, stats.completionTokens);
+
+        const float workAreaHeight = std::max(260.0f, ImGui::GetContentRegionAvail().y - 2.0f);
+        if (ImGui::BeginTable("##sift_work_area", 2,
+            ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV |
+            ImGuiTableFlags_SizingStretchProp,
+            ImVec2(-1.0f, workAreaHeight))) {
+
+            ImGui::TableSetupColumn("Input", ImGuiTableColumnFlags_WidthStretch, 0.47f);
+            ImGui::TableSetupColumn("Results", ImGuiTableColumnFlags_WidthStretch, 0.53f);
+            ImGui::TableNextRow();
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::BeginChild("##input_pane", ImVec2(0, 0), ImGuiChildFlags_None,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            ImGui::SeparatorText("INPUT");
+            const auto [inputLines, inputWords] = HumanTextStats(input);
+            ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes",
+                inputLines, inputWords, input.size());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear Input")) {
+                input.clear();
+                output.clear();
+                questionableOutput.clear();
+                lastInputBytes = lastFilteredBytes = 0;
+                stats = {};
+                status = "Input cleared.";
             }
-            ImGui::Text("Model: %s   Health: %s", cfg.model.c_str(), health.c_str());
+
+            const float inputEditorHeight =
+                std::max(120.0f, ImGui::GetContentRegionAvail().y - 62.0f);
+            ImGui::InputTextMultiline("##input", &input, {-1, inputEditorHeight});
+
+            const bool canSend =
+                !busy && !input.empty() && !cfg.endpoint.empty() && !cfg.model.empty();
+            ImGui::BeginDisabled(!canSend);
+            if (ImGui::Button(busy ? "Sending..." : "Sift")) {
+                const Config capturedCfg = cfg;
+                const std::string capturedInput = input;
+                const std::string capturedPrompt = prompt;
+                const DiagnosticSplit split =
+                    LooksLikeUnrealLog(input) &&
+                    (cfg.profileId=="auto" || cfg.profileId=="unreal")
+                        ? SplitUnrealDiagnostics(input, cfg)
+                        : SplitWithProfile(input, cfg);
+                questionableOutput = ApplyOutputPreferences(split.questionable, cfg);
+                const std::string previewFiltered =
+                    !split.included.empty() ? split.included : PreFilter(input, cfg);
+                lastInputBytes = input.size();
+                lastFilteredBytes = previewFiltered.size();
+                stats.logType = DetectLogType(input);
+                stats.profile = ProfileName(input, cfg);
+                stats.inputBytes = input.size();
+                stats.filteredBytes = previewFiltered.size();
+                stats.route =
+                    (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered))
+                        ? "Deterministic fast path"
+                        : "LLM";
+                stats.promptTokens = 0;
+                stats.completionTokens = 0;
+                stats.promptTokensPerSecond = 0.0;
+                stats.completionTokensPerSecond = 0.0;
+                stats.estimatedPromptTokensPerSecond = 0.0;
+                requestStarted = std::chrono::steady_clock::now();
+                lastResponseSeconds = 0.0;
+
+                if (cfg.preferFastPath &&
+                    LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
+                    output = ApplyOutputPreferences(
+                        FastStructuredResult(previewFiltered), cfg);
+                    lastResponseSeconds = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - requestStarted).count();
+                    stats.seconds = lastResponseSeconds;
+                    const bool autoCopied =
+                        MaybeAutoCopyResult(cfg, output, lastClipboardText);
+                    if (autoCopied) markOwnClipboardWrite();
+                    status = autoCopied
+                        ? "Done - deterministic result auto-copied."
+                        : "Done - deterministic fast path.";
+                } else {
+                    status = "Sending to model...";
+                    ++requestGeneration;
+                    activeRequestGeneration = requestGeneration;
+                    busy = true;
+                    request = std::async(std::launch::async,
+                        [capturedCfg, capturedInput, capturedPrompt] {
+                            return Send(capturedCfg, capturedInput, capturedPrompt);
+                        });
+                }
+            }
+            ImGui::EndDisabled();
+
+            if (busy) {
+                ImGui::SameLine();
+                const double elapsed = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - requestStarted).count();
+                ImGui::Text("Elapsed: %.2f s", elapsed);
+            }
+
+            if (lastInputBytes > 0) {
+                const double retained = 100.0 *
+                    static_cast<double>(lastFilteredBytes) /
+                    static_cast<double>(lastInputBytes);
+                ImGui::SameLine();
+                const ImVec4 reductionColor = retained <= 25.0
+                    ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                    : retained <= 60.0
+                        ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                        : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+                ImGui::TextColored(reductionColor, "%.1f%% reduced",
+                    100.0 - retained);
+            }
+            ImGui::EndChild();
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::BeginChild("##results_pane", ImVec2(0, 0), ImGuiChildFlags_None,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            ImGui::SeparatorText("RESULTS");
+
+            const auto [outputLines, outputWords] = HumanTextStats(output);
+            const auto questionableEntries = DiagnosticEntries(questionableOutput);
+            ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes",
+                outputLines, outputWords, output.size());
+
+            if (ImGui::BeginTabBar("##result_tabs")) {
+                if (ImGui::BeginTabItem("Included")) {
+                    const float resultHeight =
+                        std::max(100.0f, ImGui::GetContentRegionAvail().y - 38.0f);
+                    DrawDiagnosticEntries("##included_entries", output,
+                        resultHeight, status, lastClipboardText);
+                    ImGui::BeginDisabled(output.empty());
+                    if (ImGui::Button("Copy Result"))
+                        SetOwnedClipboardText(output, &lastClipboardText);
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear")) {
+                        input.clear();
+                        output.clear();
+                        questionableOutput.clear();
+                        lastInputBytes = lastFilteredBytes = 0;
+                        stats = {};
+                        status = "Cleared.";
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                const std::string questionableTab =
+                    "Questionable / Excluded (" +
+                    std::to_string(questionableEntries.size()) + ")";
+                if (ImGui::BeginTabItem(questionableTab.c_str())) {
+                    const auto [questionableLines, questionableWords] =
+                        HumanTextStats(questionableOutput);
+                    ImGui::TextDisabled(
+                        "%zu lines  |  %zu words  |  %zu bytes  |  review only",
+                        questionableLines, questionableWords,
+                        questionableOutput.size());
+                    const float questionableHeight =
+                        std::max(100.0f, ImGui::GetContentRegionAvail().y - 6.0f);
+                    DrawDiagnosticEntries("##questionable_entries",
+                        questionableOutput, questionableHeight,
+                        status, lastClipboardText);
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+            ImGui::EndChild();
+            ImGui::EndTable();
         }
 
-        ImGui::SeparatorText("Output / Included");
-        const auto [outputLines, outputWords] = HumanTextStats(output);
-        ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes", outputLines, outputWords, output.size());
-        DrawDiagnosticEntries("##included_entries", output, 180.0f, status, lastClipboardText);
-        ImGui::BeginDisabled(output.empty());
-        if (ImGui::Button("Copy Result")) {
-            SetOwnedClipboardText(output, &lastClipboardText);
-            status = "Result copied.";
-        }
-        ImGui::EndDisabled();
-
-        const auto questionableEntries = DiagnosticEntries(questionableOutput);
-        const std::string questionableLabel = "Questionable / Excluded (" + std::to_string(questionableEntries.size()) + " entries)";
-        if (ImGui::CollapsingHeader(questionableLabel.c_str())) {
-            const auto [questionableLines, questionableWords] = HumanTextStats(questionableOutput);
-            ImGui::TextDisabled("%zu lines  |  %zu words  |  %zu bytes  |  retained for review, not copied",
-                questionableLines, questionableWords, questionableOutput.size());
-            DrawDiagnosticEntries("##questionable_entries", questionableOutput, 180.0f, status, lastClipboardText);
-        }
-
-        if (ImGui::Button("Clear")) {
-            input.clear(); output.clear(); questionableOutput.clear();
-            lastInputBytes = lastFilteredBytes = 0;
-            stats = {};
-            status = "Cleared.";
-        }
             ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Settings")) {
