@@ -1,0 +1,21 @@
+{
+  "id": "cmake-ninja",
+  "name": "CMake / Ninja",
+  "detect": [
+    "CMake Error",
+    "ninja: build stopped",
+    "FAILED:"
+  ],
+  "high_priority": [
+    "CMake Error",
+    "ninja: build stopped",
+    "FAILED:"
+  ],
+  "warnings": [
+    "CMake Warning"
+  ],
+  "questionable": [],
+  "noise": [
+    "Re-checking globbed directories"
+  ]
+}
