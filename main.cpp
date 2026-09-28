@@ -2134,6 +2134,7 @@ int main(int argc, char** argv) {
                     health = result.usedLocalFallback
                         ? "Online / response issue"
                         : "Online - model responded";
+                    connectionStage = ConnectionStage::Ready;
 
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                     if (autoCopied) markOwnClipboardWrite();
@@ -2181,9 +2182,11 @@ int main(int argc, char** argv) {
 
                     if (endpointUnavailable) {
                         health = "Offline / unreachable";
+                        connectionStage = ConnectionStage::Unreachable;
                     } else {
-                        // The endpoint responded; the model/result path failed after connectivity succeeded.
+                        // The endpoint responded; never label a response-quality failure as offline.
                         health = "Online / response issue";
+                        connectionStage = ConnectionStage::Ready;
                     }
 
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
@@ -2218,22 +2221,91 @@ int main(int argc, char** argv) {
             }
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            try { health = healthRequest.get(); }
-            catch (const std::exception&) { health = "Offline / unreachable"; }
+            bool online = false;
+            try {
+                health = healthRequest.get();
+                online = health.rfind("Online", 0) == 0;
+            } catch (const std::exception& e) {
+                health = std::string("Offline / unreachable: ") + e.what();
+            }
             checkingHealth = false;
+
+            if (!online) {
+                connectionStage = ConnectionStage::Unreachable;
+                benchmarkStatus = startupConnectionSequence
+                    ? "Startup benchmark skipped - model unreachable"
+                    : benchmarkStatus;
+                if (warnOnHealthFailure)
+                    status = "WARNING: model endpoint is unreachable; local filtering will be used.";
+                startupConnectionSequence = false;
+            } else if (startupConnectionSequence) {
+                connectionStage = ConnectionStage::LoadingModels;
+                benchmarkStatus = "Loading model list...";
+                loadingModels = true;
+                const Config capturedCfg = cfg;
+                modelListRequest = std::async(std::launch::async,
+                    [capturedCfg] { return ListModels(capturedCfg); });
+            } else {
+                connectionStage = ConnectionStage::Ready;
+                if (warnOnHealthFailure)
+                    status = "Model endpoint reachable.";
+            }
+            warnOnHealthFailure = false;
         }
+
         if (loadingModels && modelListRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            try { availableModels = modelListRequest.get(); } catch (...) { availableModels.clear(); }
+            bool modelsLoaded = false;
+            try {
+                availableModels = modelListRequest.get();
+                modelsLoaded = !availableModels.empty();
+            } catch (...) {
+                availableModels.clear();
+            }
             loadingModels = false;
+
+            if (!modelsLoaded) {
+                connectionStage = ConnectionStage::ModelsFailed;
+                if (startupConnectionSequence)
+                    benchmarkStatus = "Startup benchmark skipped - model list unavailable";
+                startupConnectionSequence = false;
+            } else if (startupConnectionSequence) {
+                if (std::find(availableModels.begin(), availableModels.end(), cfg.model) ==
+                    availableModels.end()) {
+                    cfg.model = availableModels.front();
+                }
+                connectionStage = ConnectionStage::Benchmarking;
+                benchmarkStatus = "Benchmarking selected model...";
+                benchmarking = true;
+                const Config capturedCfg = cfg;
+                benchmarkRequest = std::async(std::launch::async,
+                    [capturedCfg] { return Benchmark(capturedCfg); });
+            } else {
+                connectionStage = ConnectionStage::Ready;
+            }
         }
+
         if (applyingCompute && computeRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            try { computeStatus = computeRequest.get(); } catch (const std::exception& e) { computeStatus = std::string("Compute change failed: ") + e.what(); }
+            try { computeStatus = computeRequest.get(); }
+            catch (const std::exception& e) {
+                computeStatus = std::string("Compute change failed: ") + e.what();
+            }
             applyingCompute = false;
         }
+
         if (benchmarking && benchmarkRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            try { benchmarkStatus = benchmarkRequest.get(); }
-            catch (const std::exception& e) { benchmarkStatus = std::string("Benchmark failed: ") + e.what(); }
+            try {
+                benchmarkStatus = benchmarkRequest.get();
+                connectionStage = ConnectionStage::Ready;
+                health = "Online - model available";
+                if (startupConnectionSequence)
+                    status = "Ready - health check, model discovery, and benchmark complete.";
+            } catch (const std::exception& e) {
+                benchmarkStatus = std::string("Benchmark failed: ") + e.what();
+                connectionStage = ConnectionStage::BenchmarkFailed;
+                health = "Online - benchmark failed";
+            }
             benchmarking = false;
+            startupConnectionSequence = false;
         }
 
         const bool mainVisibleForFrame =
