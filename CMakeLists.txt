@@ -61,6 +61,37 @@ target_link_libraries(logsift_imgui PUBLIC SDL3::SDL3)
 add_executable(logsift main.cpp)
 
 if(APPLE)
+    set(LOGSIFT_GENERATED_ICON_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated-icons")
+    set(LOGSIFT_ICONSET_DIR "${LOGSIFT_GENERATED_ICON_DIR}/LogSift.iconset")
+    set(LOGSIFT_APP_ICON "${LOGSIFT_GENERATED_ICON_DIR}/LogSift.icns")
+    set(LOGSIFT_TRAY_ICON "${LOGSIFT_GENERATED_ICON_DIR}/LogSiftTray.png")
+
+    add_executable(logsift_icon_renderer EXCLUDE_FROM_ALL
+        assets/render_macos_icons.mm)
+    target_compile_options(logsift_icon_renderer PRIVATE -fobjc-arc)
+    target_link_libraries(logsift_icon_renderer PRIVATE "-framework Cocoa")
+
+    add_custom_command(
+        OUTPUT "${LOGSIFT_APP_ICON}" "${LOGSIFT_TRAY_ICON}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${LOGSIFT_GENERATED_ICON_DIR}"
+        COMMAND $<TARGET_FILE:logsift_icon_renderer> "${LOGSIFT_GENERATED_ICON_DIR}"
+        COMMAND /usr/bin/iconutil -c icns "${LOGSIFT_ICONSET_DIR}" -o "${LOGSIFT_APP_ICON}"
+        DEPENDS logsift_icon_renderer
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/render_macos_icons.mm"
+        COMMENT "Rendering centered Log Sift app and menu bar icons"
+        VERBATIM)
+
+    add_custom_target(logsift_icons
+        DEPENDS "${LOGSIFT_APP_ICON}" "${LOGSIFT_TRAY_ICON}")
+    add_dependencies(logsift logsift_icons)
+
+    set_source_files_properties(
+        "${LOGSIFT_APP_ICON}"
+        "${LOGSIFT_TRAY_ICON}"
+        PROPERTIES
+            GENERATED TRUE
+            MACOSX_PACKAGE_LOCATION "Resources")
+
     set_target_properties(logsift PROPERTIES
         MACOSX_BUNDLE TRUE
         OUTPUT_NAME "Log Sift"
@@ -68,8 +99,12 @@ if(APPLE)
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.nocxr.logsift"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_ICON_FILE "LogSift.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in")
-    target_sources(logsift PRIVATE mac_tray.mm)
+    target_sources(logsift PRIVATE
+        mac_tray.mm
+        "${LOGSIFT_APP_ICON}"
+        "${LOGSIFT_TRAY_ICON}")
     target_compile_options(logsift PRIVATE
         $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 endif()
