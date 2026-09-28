@@ -677,6 +677,9 @@ struct DiagnosticSplit {
 
 struct SiftResult {
     std::string text;
+    std::string route = "LLM";
+    std::string note;
+    bool usedLocalFallback = false;
     int promptTokens = 0;
     int completionTokens = 0;
     double promptTokensPerSecond = 0.0;
@@ -1247,6 +1250,52 @@ std::string FastStructuredResult(const std::string& filtered) {
     return DedupeLines(filtered);
 }
 
+std::string ExtractVerbatimModelDiagnostics(
+    const std::string& modelText,
+    const std::string& modelInput,
+    const std::string& originalInput) {
+
+    std::istringstream filteredOut(modelText);
+    std::ostringstream clean;
+    std::string outLine;
+    int kept = 0;
+    while (std::getline(filteredOut, outLine) && kept < 12) {
+        if (!outLine.empty() && outLine.back() == '\r') outLine.pop_back();
+        if (outLine == "NO_DIAGNOSTICS") {
+            clean << outLine << '\n';
+            break;
+        }
+        const bool commentary =
+            outLine.find("**") != std::string::npos ||
+            outLine.find("Analyzing") != std::string::npos ||
+            outLine.find("Warnings:") != std::string::npos ||
+            outLine.find("Several") != std::string::npos ||
+            outLine.find("Blocks of") != std::string::npos;
+        if (!commentary && !outLine.empty() &&
+            (modelInput.find(outLine) != std::string::npos ||
+             originalInput.find(outLine) != std::string::npos)) {
+            clean << outLine << '\n';
+            ++kept;
+        }
+    }
+    return DedupeLines(clean.str());
+}
+
+std::string FirstLocalDiagnostics(const std::string& input, const Config& cfg) {
+    const std::string fallback = PreFilter(input, cfg);
+    std::istringstream fallbackIn(fallback);
+    std::ostringstream fallbackOut;
+    std::string fallbackLine;
+    int fallbackKept = 0;
+    while (std::getline(fallbackIn, fallbackLine) && fallbackKept < 12) {
+        if (!fallbackLine.empty()) {
+            fallbackOut << fallbackLine << '\n';
+            ++fallbackKept;
+        }
+    }
+    return fallbackKept ? DedupeLines(fallbackOut.str()) : "NO_DIAGNOSTICS";
+}
+
 SiftResult Send(const Config& cfg, const std::string& input, const std::string& prompt) {
     std::string modelInput = PreFilter(input, cfg);
     // Keep substantial headroom for tokenizers with poor bytes/token ratios and for
@@ -1289,54 +1338,36 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
 
     const json response = json::parse(raw);
     if (response.contains("choices") && !response["choices"].empty()) {
-        const auto& message = response["choices"][0]["message"];
-        std::string content = message.value("content", "");
-        if (content.empty()) {
-            const std::string finishReason = response["choices"][0].value("finish_reason", "");
-            const bool hasReasoning =
-                !message.value("reasoning_content", "").empty() ||
-                !message.value("reasoning", "").empty();
-            if (hasReasoning) {
-                throw std::runtime_error(
-                    finishReason == "length"
-                        ? "Model exhausted its output budget in reasoning before returning diagnostics."
-                        : "Model returned reasoning without a final diagnostic response.");
-            }
-        }
+        const auto& choice = response["choices"][0];
+        const auto& message = choice["message"];
+        const std::string content = message.value("content", "");
+        std::string reasoning = message.value("reasoning_content", "");
+        if (reasoning.empty()) reasoning = message.value("reasoning", "");
+
+        SiftResult result;
         if (!content.empty()) {
-            SiftResult result;
-            std::istringstream filteredOut(content);
-            std::ostringstream clean;
-            std::string outLine;
-            int kept = 0;
-            while (std::getline(filteredOut, outLine) && kept < 12) {
-                if (outLine == "NO_DIAGNOSTICS") { clean << outLine << '\n'; break; }
-                const bool commentary =
-                    outLine.find("**") != std::string::npos ||
-                    outLine.find("Analyzing") != std::string::npos ||
-                    outLine.find("Warnings:") != std::string::npos ||
-                    outLine.find("Several") != std::string::npos ||
-                    outLine.find("Blocks of") != std::string::npos;
-                if (!commentary && !outLine.empty() &&
-                    (modelInput.find(outLine) != std::string::npos || input.find(outLine) != std::string::npos)) {
-                    clean << outLine << '\n';
-                    ++kept;
-                }
-            }
-            result.text = DedupeLines(clean.str());
-            if (result.text.empty()) {
-                // If the model summarized instead of returning verbatim lines, fall back to the
-                // already-filtered candidate set rather than falsely reporting no diagnostics.
-                const std::string fallback = PreFilter(input, cfg);
-                std::istringstream fallbackIn(fallback);
-                std::ostringstream fallbackOut;
-                std::string fallbackLine;
-                int fallbackKept = 0;
-                while (std::getline(fallbackIn, fallbackLine) && fallbackKept < 12) {
-                    if (!fallbackLine.empty()) { fallbackOut << fallbackLine << '\n'; ++fallbackKept; }
-                }
-                result.text = fallbackKept ? DedupeLines(fallbackOut.str()) : "NO_DIAGNOSTICS";
-            }
+            result.text = ExtractVerbatimModelDiagnostics(content, modelInput, input);
+            result.route = "LLM";
+        } else if (!reasoning.empty()) {
+            result.text = ExtractVerbatimModelDiagnostics(reasoning, modelInput, input);
+            result.route = "LLM reasoning extract";
+            result.note = "Model returned diagnostics through its reasoning channel.";
+        }
+
+        if (result.text.empty()) {
+            result.text = FirstLocalDiagnostics(input, cfg);
+            result.route = "Model fallback";
+            result.usedLocalFallback = true;
+            const std::string finishReason = choice.value("finish_reason", "");
+            if (!reasoning.empty() && finishReason == "length")
+                result.note = "Model used its response budget without returning usable final diagnostics.";
+            else if (!reasoning.empty())
+                result.note = "Model returned reasoning but no usable verbatim diagnostics.";
+            else if (!content.empty())
+                result.note = "Model response did not contain verbatim diagnostic lines.";
+            else
+                result.note = "Model returned no diagnostic content.";
+        }
 
             // Collapse repeated Unreal diagnostics that differ only by timestamp.
             if (LooksLikeUnrealLog(input) && result.text != "NO_DIAGNOSTICS") {
@@ -1398,19 +1429,17 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
                 }
                 result.text = DedupeLines(formatOut.str());
             }
-            if (response.contains("usage")) {
-                const auto& usage = response["usage"];
-                result.promptTokens = usage.value("prompt_tokens", 0);
-                result.completionTokens = usage.value("completion_tokens", 0);
-            }
-            if (response.contains("stats")) {
-                const auto& s = response["stats"];
-                result.promptTokensPerSecond = s.value("prompt_tokens_per_second", 0.0);
-                result.completionTokensPerSecond = s.value("tokens_per_second", 0.0);
-            }
-            return result;
+        if (response.contains("usage")) {
+            const auto& usage = response["usage"];
+            result.promptTokens = usage.value("prompt_tokens", 0);
+            result.completionTokens = usage.value("completion_tokens", 0);
         }
-        throw std::runtime_error("Model returned no visible content. Raw response:\n" + raw);
+        if (response.contains("stats")) {
+            const auto& responseStats = response["stats"];
+            result.promptTokensPerSecond = responseStats.value("prompt_tokens_per_second", 0.0);
+            result.completionTokensPerSecond = responseStats.value("tokens_per_second", 0.0);
+        }
+        return result;
     }
     if (response.contains("error"))
         throw std::runtime_error(response["error"].dump(2));
@@ -1918,21 +1947,39 @@ int main(int argc, char** argv) {
                 try {
                     const SiftResult result = request.get();
                     output = ApplyOutputPreferences(result.text, cfg);
+                    stats.route = result.route;
                     stats.promptTokens = result.promptTokens;
                     stats.completionTokens = result.completionTokens;
                     stats.promptTokensPerSecond = result.promptTokensPerSecond;
                     stats.completionTokensPerSecond = result.completionTokensPerSecond;
                     if (stats.promptTokens > 0 && stats.seconds > 0.0)
                         stats.estimatedPromptTokensPerSecond = static_cast<double>(stats.promptTokens) / stats.seconds;
+
+                    health = result.usedLocalFallback
+                        ? "Online / response issue"
+                        : "Online - model responded";
+
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                     if (autoCopied) markOwnClipboardWrite();
-                    status = autoCopied ? "Done - result auto-copied." : "Done.";
+                    if (result.usedLocalFallback) {
+                        status = std::string("Model online - local filter used. ") + result.note;
+                        if (autoCopied) status += " Result auto-copied.";
+                    } else {
+                        status = autoCopied ? "Done - result auto-copied." : "Done.";
+                    }
+
                     if (cfg.watchClipboard) {
-                        toastText = "Complete";
+                        toastText = result.usedLocalFallback ? "Model fallback" : "Complete";
                         toastProcessing = false;
-                        toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
+                        toastOutcome = result.usedLocalFallback
+                            ? ToastOutcome::ModelFallback
+                            : (output.empty() || output == "NO_DIAGNOSTICS\n"
+                                ? ToastOutcome::Empty
+                                : ToastOutcome::Success);
+                        toastSoundPlayed = false;
                         toastShownAt = std::chrono::steady_clock::now();
-                        toastUntil = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+                        toastUntil = std::chrono::steady_clock::now() +
+                            std::chrono::milliseconds(static_cast<int>(cfg.toastSeconds * 1000.0f));
                     }
                 } catch (const std::exception& e) {
                     const bool endpointUnavailable = IsEndpointUnavailableError(e.what());
