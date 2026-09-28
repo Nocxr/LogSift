@@ -1,0 +1,28 @@
+{
+  "id": "lm-studio",
+  "name": "LM Studio / Model Service",
+  "detect": [
+    "LM Studio",
+    "localhost:1234",
+    "127.0.0.1:1234",
+    "prompt_tokens",
+    "completion_tokens"
+  ],
+  "high_priority": [
+    "error",
+    "failed",
+    "exceed_context_size",
+    "out of memory",
+    "OOM"
+  ],
+  "warnings": [
+    "warning",
+    "timeout"
+  ],
+  "questionable": [
+    "model loading"
+  ],
+  "noise": [
+    "tokens/s"
+  ]
+}
