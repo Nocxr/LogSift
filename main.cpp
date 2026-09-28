@@ -3211,14 +3211,37 @@ int main(int argc, char** argv) {
                     SDL_Rect usable{};
                     if (display && SDL_GetDisplayUsableBounds(display, &usable)) {
                         const int tw = 460;
-                        const int autoCopyExtra = toastAutoCopied ? 28 : 0;
-                        const int tokenStatsExtra = stats.inputBytes > 0
-                            ? (stats.promptTokens > 0 || stats.completionTokens > 0 ? 42 : 22)
-                            : 0;
-                        const int th = cfg.toastShowPreview
-                            ? std::clamp(165 + cfg.toastPreviewLines * 24 +
-                                autoCopyExtra + tokenStatsExtra, 212, 500)
-                            : 165 + autoCopyExtra + tokenStatsExtra;
+                        const bool sizingChunking =
+                            toastProcessing && activeProgress && activeProgress->chunking.load();
+                        int contentHeight = 112; // title, spacing, action row
+                        if (toastProcessing) {
+                            if (cfg.scanShowSource) contentHeight += 20;
+                            if (cfg.scanShowProgress) contentHeight += sizingChunking ? 54 : 30;
+                            if (cfg.scanShowPrefilterCounts) contentHeight += 20;
+                            if (cfg.scanShowEstimatedTokens) contentHeight += 20;
+                            if (cfg.scanShowBytesReduction) contentHeight += 20;
+                            if (cfg.scanShowElapsedTime) contentHeight += 20;
+                        } else {
+                            if (cfg.resultShowDiagnosticTotal) contentHeight += 20;
+                            if (cfg.resultShowSource) contentHeight += 20;
+                            if (cfg.resultShowFallbackNotice &&
+                                (toastOutcome == ToastOutcome::OfflineFallback ||
+                                 toastOutcome == ToastOutcome::ModelFallback))
+                                contentHeight += 52;
+                            if (cfg.resultShowPrefilterCounts) contentHeight += 20;
+                            if (cfg.resultShowEstimatedTokens) contentHeight += 20;
+                            if (cfg.resultShowRealTokens &&
+                                (stats.promptTokens > 0 || stats.completionTokens > 0))
+                                contentHeight += 20;
+                            if (cfg.resultShowBytesReduction) contentHeight += 20;
+                            if (cfg.resultShowTime) contentHeight += 20;
+                            if (cfg.resultShowAutoCopy && toastAutoCopied) contentHeight += 32;
+                            if (cfg.resultShowCounts) contentHeight += 20;
+                            if (cfg.resultShowPreview && !output.empty())
+                                contentHeight += 18 + std::clamp(cfg.toastPreviewLines, 1, 10) * 22;
+                            if (cfg.resultShowLifetimeBar) contentHeight += 12;
+                        }
+                        const int th = std::clamp(contentHeight, 170, 560);
                         SDL_SetWindowSize(toastWindow, tw, th);
                         SDL_SetWindowPosition(toastWindow, usable.x + usable.w - tw - 18, usable.y + usable.h - th - 18);
                     }
