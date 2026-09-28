@@ -1778,17 +1778,6 @@ int main(int argc, char** argv) {
             ImGui::End();
         }
 
-        if (!toastProcessing && !toastText.empty() && cfg.toastSound && !toastSoundPlayed) {
-            toastSoundPlayed = true;
-#ifdef _WIN32
-            PlayEndSound(cfg, toastOutcome == ToastOutcome::Failure);
-#else
-            SDL_Log("Log Sift notification");
-#endif
-        }
-        const bool toastActive = !toastText.empty() && (toastProcessing || std::chrono::steady_clock::now() < toastUntil);
-        if (!toastActive && !toastText.empty()) toastText.clear();
-
         const bool mainVisibleForRender = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
         if (mainVisibleForRender) {
             ImGui::Render();
@@ -1801,6 +1790,19 @@ int main(int argc, char** argv) {
         }
         mainDirty = false;
         }
+
+        if (!toastProcessing && !toastText.empty() && cfg.toastSound && !toastSoundPlayed) {
+            toastSoundPlayed = true;
+#ifdef _WIN32
+            PlayEndSound(cfg, toastOutcome == ToastOutcome::Failure);
+#else
+            SDL_Log("Log Sift notification");
+#endif
+        }
+        const bool toastActive =
+            !toastText.empty() &&
+            (toastProcessing || std::chrono::steady_clock::now() < toastUntil);
+        if (!toastActive && !toastText.empty()) toastText.clear();
 
         if (toastContext && toastWindow && toastRenderer) {
             if (toastActive) {
