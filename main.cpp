@@ -332,10 +332,6 @@ bool MaybeAutoCopyResult(const Config& cfg, const std::string& text, std::string
     if (!cfg.autoCopyResults || !HasActionableOutput(text)) return false;
     if (!SDL_SetClipboardText(text.c_str())) return false;
     lastClipboardText = text;
-#ifdef _WIN32
-    lastClipboardSequence = GetClipboardSequenceNumber();
-    gClipboardUpdatePending = false;
-#endif
     return true;
 }
 
@@ -1898,6 +1894,34 @@ int main(int argc, char** argv) {
             ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Settings")) {
+                ImGui::SeparatorText("GENERAL");
+                if (ImGui::Checkbox("Start Log Sift at login", &startAtLogin)) {
+                    bool applied = false;
+#ifdef _WIN32
+                    applied = WindowsSetStartAtLogin(startAtLogin);
+#elif defined(__APPLE__)
+                    applied = LogSiftMacSetStartAtLogin(startAtLogin);
+#endif
+                    if (!applied) {
+                        startAtLogin = !startAtLogin;
+                        status = "Could not update start-at-login setting.";
+                    } else {
+                        status = startAtLogin ? "Log Sift will start at login." : "Start at login disabled.";
+                    }
+                }
+                ImGui::Checkbox("Auto-copy actionable results", &cfg.autoCopyResults);
+                ImGui::SameLine();
+                ImGui::TextDisabled("Copies only when Log Sift found diagnostics; never copies NO_DIAGNOSTICS/empty results.");
+                ImGui::TextDisabled("Settings: %s", SettingsPath().string().c_str());
+                ImGui::SameLine();
+                if (ImGui::Button("Open Data Folder")) {
+#ifdef _WIN32
+                    ShellExecuteW(nullptr, L"open", UserDataDir().wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+                    SDL_OpenURL(("file://" + UserDataDir().string()).c_str());
+#endif
+                }
+
                 ImGui::SeparatorText("PROFILES");
                 ImGui::Text("Loaded: %zu", gProfiles.size());
                 ImGui::SameLine();
@@ -1929,18 +1953,25 @@ int main(int argc, char** argv) {
                 ImGui::Checkbox("Acknowledge any clipboard change", &cfg.toastAcknowledgeClipboard);
                 ImGui::SameLine(); ImGui::TextDisabled("Brief popup confirms clipboard watch is active.");
                 ImGui::Checkbox("Play sound", &cfg.toastSound);
-                const char* startSounds[] = {"Off", "Tick", "Soft", "Chime"};
-                const char* endSounds[] = {"Off", "Soft", "Chime", "Success", "Attention"};
+                const char* startSounds[] = {"Off", "Tick", "Soft", "Chime", "Pulse", "Sweep", "Ping", "Triple"};
+                const char* endSounds[] = {"Off", "Soft", "Chime", "Success", "Attention", "Offline", "Pop", "Spark", "Low"};
                 ImGui::TextUnformatted("Start"); ImGui::SameLine();
-                ImGui::SetNextItemWidth(120); ImGui::Combo("##start_sound", &cfg.startSoundPreset, startSounds, 4);
+                ImGui::SetNextItemWidth(120); ImGui::Combo("##start_sound", &cfg.startSoundPreset, startSounds, 8);
                 ImGui::SameLine();
                 if (ImGui::Button("Test##start_sound")) PlaySynthPreset(cfg.startSoundPreset, true);
                 ImGui::SameLine(); ImGui::TextDisabled("Plays when a recognized log begins scanning.");
-                ImGui::TextUnformatted("End"); ImGui::SameLine();
-                ImGui::SetNextItemWidth(120); ImGui::Combo("##end_sound", &cfg.endSoundPreset, endSounds, 5);
+
+                ImGui::TextUnformatted("Complete"); ImGui::SameLine();
+                ImGui::SetNextItemWidth(120); ImGui::Combo("##end_sound", &cfg.endSoundPreset, endSounds, 9);
                 ImGui::SameLine();
                 if (ImGui::Button("Test##end_sound")) PlaySynthPreset(cfg.endSoundPreset, false);
-                ImGui::SameLine(); ImGui::TextDisabled("Procedural SDL sound; failures use Attention.");
+                ImGui::SameLine(); ImGui::TextDisabled("Normal completion sound; hard failures still use Attention.");
+
+                ImGui::TextUnformatted("Offline fallback"); ImGui::SameLine();
+                ImGui::SetNextItemWidth(120); ImGui::Combo("##offline_sound", &cfg.offlineSoundPreset, endSounds, 9);
+                ImGui::SameLine();
+                if (ImGui::Button("Test##offline_sound")) PlaySynthPreset(cfg.offlineSoundPreset, false);
+                ImGui::SameLine(); ImGui::TextDisabled("Distinct sound when the model fails and local filtering takes over.");
 
                 ImGui::TextUnformatted("Custom end sound"); ImGui::SameLine();
                 ImGui::SetNextItemWidth(320);
@@ -1995,15 +2026,21 @@ int main(int argc, char** argv) {
             ImGui::EndFrame();
         }
         mainDirty = false;
+
+        const std::string configSnapshot = ConfigToJson(cfg).dump();
+        if (configSnapshot != lastSavedConfig) {
+            SaveConfig(cfg);
+            lastSavedConfig = configSnapshot;
+        }
         }
 
         if (!toastProcessing && !toastText.empty() && cfg.toastSound && !toastSoundPlayed) {
             toastSoundPlayed = true;
-#ifdef _WIN32
-            PlayEndSound(cfg, toastOutcome == ToastOutcome::Failure);
-#else
-            SDL_Log("Log Sift notification");
-#endif
+            if (toastOutcome == ToastOutcome::Fallback) {
+                PlaySynthPreset(cfg.offlineSoundPreset, false);
+            } else {
+                PlayEndSound(cfg, toastOutcome == ToastOutcome::Failure);
+            }
         }
         const bool toastActive =
             !toastText.empty() &&
