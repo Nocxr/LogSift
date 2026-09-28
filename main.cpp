@@ -2426,6 +2426,84 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
     ImGui::EndChild();
 }
 
+void DrawToastPreviewEntries(const char* id, const std::vector<std::string>& entries,
+    size_t previewCount, float height,
+    std::string& status, std::string& lastClipboardText, std::string& appLog,
+    CopyFlashState& copyFlash) {
+
+    ImGui::BeginChild(id, {-1, height}, ImGuiChildFlags_Borders,
+        ImGuiWindowFlags_NoHorizontalScroll);
+    if (previewCount == 0) {
+        ImGui::TextDisabled("No entries.");
+        ImGui::EndChild();
+        return;
+    }
+
+    for (size_t i = 0; i < previewCount; ++i) {
+        const std::string& entry = entries[i];
+        const bool error =
+            entry.find("Error:") != std::string::npos ||
+            entry.find("error ") != std::string::npos ||
+            entry.find("Fatal") != std::string::npos ||
+            entry.find("fatal") != std::string::npos;
+        const bool warning =
+            entry.find("Warning:") != std::string::npos ||
+            entry.find("warning ") != std::string::npos;
+
+        if (error) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
+        else if (warning) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.82f, 0.25f, 1.0f));
+
+        ImGui::PushID(static_cast<int>(i));
+        const ImVec2 topLeft = ImGui::GetCursorScreenPos();
+        const float available = std::max(80.0f, ImGui::GetContentRegionAvail().x - 8.0f);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + available);
+        ImGui::TextWrapped("%s", entry.c_str());
+        ImGui::PopTextWrapPos();
+        const ImVec2 textMax = ImGui::GetItemRectMax();
+        const float rowHeight = std::max(
+            ImGui::GetTextLineHeightWithSpacing(),
+            textMax.y - topLeft.y);
+
+        const auto flashNow = std::chrono::steady_clock::now();
+        const size_t entryHash = std::hash<std::string>{}(entry);
+        if (flashNow < copyFlash.until &&
+            (copyFlash.all || copyFlash.entryHash == entryHash)) {
+            const float remaining =
+                std::chrono::duration<float>(copyFlash.until - flashNow).count();
+            const float t = std::clamp(remaining / 0.42f, 0.0f, 1.0f);
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                {topLeft.x - 3.0f, topLeft.y - 2.0f},
+                {topLeft.x + available + 3.0f, topLeft.y + rowHeight + 2.0f},
+                ImGui::ColorConvertFloat4ToU32(
+                    ImVec4(0.18f, 0.82f, 1.0f, 0.10f + 0.16f * t)),
+                4.0f);
+        }
+
+        ImGui::SetCursorScreenPos(topLeft);
+        ImGui::SetNextItemAllowOverlap();
+        if (ImGui::InvisibleButton(
+                "##preview_entry_click",
+                {available, rowHeight})) {
+            if (SetOwnedClipboardText(entry, &lastClipboardText)) {
+                StartCopyFlash(copyFlash, false, entryHash);
+                status = "Copied diagnostic entry to clipboard.";
+                AppendActivityLog(appLog, "COPY",
+                    "Popup preview diagnostic copied.");
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetTooltip("Click to copy this entry");
+        }
+
+        ImGui::SetCursorScreenPos({topLeft.x, topLeft.y + rowHeight + 4.0f});
+        if (i + 1 < previewCount) ImGui::Separator();
+        ImGui::PopID();
+        if (error || warning) ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
+}
+
 }
 
 int main(int argc, char** argv) {
