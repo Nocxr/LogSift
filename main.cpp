@@ -3572,6 +3572,7 @@ int main(int argc, char** argv) {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 7));
                 ImGui::Begin("##toast_root", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                     ImGuiWindowFlags_NoSavedSettings);
+                int measuredToastHeight = 0;
                 const size_t entries = DiagnosticEntries(output).size();
                 const size_t questionable = DiagnosticEntries(questionableOutput).size();
                 const bool chunkingNow =
@@ -3977,6 +3978,8 @@ int main(int argc, char** argv) {
                     ImGui::PopStyleColor();
                 }
 
+                measuredToastHeight = static_cast<int>(std::ceil(
+                    ImGui::GetCursorPosY() + ImGui::GetStyle().WindowPadding.y));
                 ImGui::End();
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
@@ -3985,6 +3988,33 @@ int main(int argc, char** argv) {
                 SDL_RenderClear(toastRenderer);
                 ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), toastRenderer);
                 SDL_RenderPresent(toastRenderer);
+
+                // The estimate above is only for the first frame. From here on, fit
+                // the native popup to the actual ImGui content so cancel/expand/
+                // collapse never leaves guessed dead space under the action row.
+                if (measuredToastHeight > 0) {
+                    int displayCountMeasured = 0;
+                    SDL_DisplayID* measuredDisplays = SDL_GetDisplays(&displayCountMeasured);
+                    SDL_DisplayID measuredDisplay =
+                        (measuredDisplays && displayCountMeasured > 0) ? measuredDisplays[0] : 0;
+                    SDL_Rect measuredUsable{};
+                    if (measuredDisplay &&
+                        SDL_GetDisplayUsableBounds(measuredDisplay, &measuredUsable)) {
+                        const int exactH = std::clamp(
+                            measuredToastHeight, 132, std::max(220, measuredUsable.h - 36));
+                        int currentW = 0, currentH = 0;
+                        SDL_GetWindowSize(toastWindow, &currentW, &currentH);
+                        if (currentW != 460 || currentH != exactH) {
+                            SDL_SetWindowSize(toastWindow, 460, exactH);
+                            SDL_SetWindowPosition(
+                                toastWindow,
+                                measuredUsable.x + measuredUsable.w - 460 - 18,
+                                measuredUsable.y + measuredUsable.h - exactH - 18);
+                        }
+                    }
+                    if (measuredDisplays) SDL_free(measuredDisplays);
+                }
+
                 ImGui::SetCurrentContext(mainContext);
             } else {
                 SDL_HideWindow(toastWindow);
