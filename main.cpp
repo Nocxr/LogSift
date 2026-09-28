@@ -33,6 +33,7 @@ extern "C" bool LogSiftMacTrayTakeToggleWatch(void);
 extern "C" bool LogSiftMacTrayTakeCopy(void);
 extern "C" bool LogSiftMacTrayTakeQuit(void);
 extern "C" void LogSiftMacTraySetWatch(bool enabled);
+extern "C" long long LogSiftMacClipboardChangeCount(void);
 #endif
 
 namespace {
@@ -1112,6 +1113,10 @@ int main(int argc, char** argv) {
     size_t lastInputBytes = 0, lastFilteredBytes = 0;
     auto lastClipboardCheck = std::chrono::steady_clock::now(); // non-Windows fallback only
     auto lastUiActivity = std::chrono::steady_clock::now();
+    bool mainDirty = true;
+#ifdef __APPLE__
+    long long lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
+#endif
 
     while (running) {
 #ifdef __APPLE__
@@ -1119,17 +1124,20 @@ int main(int argc, char** argv) {
             SDL_ShowWindow(window);
             SDL_RaiseWindow(window);
             lastUiActivity = std::chrono::steady_clock::now();
+            mainDirty = true;
         }
         if (LogSiftMacTrayTakeToggleWatch()) {
             watchClipboard=!watchClipboard;
             LogSiftMacTraySetWatch(watchClipboard);
             lastClipboardText.clear();
             status=watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            mainDirty = true;
         }
         if (LogSiftMacTrayTakeCopy() && !output.empty()) {
             SDL_SetClipboardText(output.c_str());
             lastClipboardText=output;
             status="Result copied from menu bar.";
+            mainDirty = true;
         }
         if (LogSiftMacTrayTakeQuit()) running=false;
 #endif
@@ -1184,12 +1192,23 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
         const bool clipboardTriggered = watchClipboard && !busy && gClipboardUpdatePending;
 #else
-        const bool clipboardTriggered = watchClipboard && !busy && now - lastClipboardCheck >= std::chrono::milliseconds(350);
+        bool clipboardTriggered = false;
+        if (watchClipboard && !busy &&
+            now - lastClipboardCheck >= std::chrono::milliseconds(350)) {
+            lastClipboardCheck = now;
+#ifdef __APPLE__
+            const long long macClipboardChangeCount = LogSiftMacClipboardChangeCount();
+            if (macClipboardChangeCount != lastMacClipboardChangeCount) {
+                lastMacClipboardChangeCount = macClipboardChangeCount;
+                clipboardTriggered = true;
+            }
+#else
+            clipboardTriggered = true;
+#endif
+        }
 #endif
         if (clipboardTriggered) {
-#ifndef _WIN32
-            lastClipboardCheck = now;
-#else
+#ifdef _WIN32
             gClipboardUpdatePending = false;
             const DWORD clipboardSequence = GetClipboardSequenceNumber();
             if (clipboardSequence == lastClipboardSequence) continue;
@@ -1229,6 +1248,7 @@ int main(int argc, char** argv) {
                 lastInputBytes = 0;
                 lastFilteredBytes = 0;
                 stats = {};
+                mainDirty = true;
                 if (cfg.toastAcknowledgeClipboard) {
                     toastText = "Clipboard detected";
                     toastProcessing = false;
@@ -1303,6 +1323,7 @@ int main(int argc, char** argv) {
 
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
+            mainDirty = true;
             const bool uiActivityEvent =
                 event.type == SDL_EVENT_MOUSE_MOTION ||
                 event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
@@ -1344,6 +1365,7 @@ int main(int argc, char** argv) {
         }
 
         if (busy && request.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            mainDirty = true;
             lastResponseSeconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - requestStarted).count();
             if (activeRequestGeneration != requestGeneration) {
@@ -1404,24 +1426,32 @@ int main(int argc, char** argv) {
             }
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            mainDirty = true;
             try { health = healthRequest.get(); }
             catch (const std::exception&) { health = "Offline / unreachable"; }
             checkingHealth = false;
         }
         if (loadingModels && modelListRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            mainDirty = true;
             try { availableModels = modelListRequest.get(); } catch (...) { availableModels.clear(); }
             loadingModels = false;
         }
         if (applyingCompute && computeRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            mainDirty = true;
             try { computeStatus = computeRequest.get(); } catch (const std::exception& e) { computeStatus = std::string("Compute change failed: ") + e.what(); }
             applyingCompute = false;
         }
         if (benchmarking && benchmarkRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            mainDirty = true;
             try { benchmarkStatus = benchmarkRequest.get(); }
             catch (const std::exception& e) { benchmarkStatus = std::string("Benchmark failed: ") + e.what(); }
             benchmarking = false;
         }
 
+        const bool asyncActiveForMain =
+            busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
+        const bool mainNeedsFrame = mainDirty || asyncActiveForMain;
+        if (mainNeedsFrame) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -1767,9 +1797,9 @@ int main(int argc, char** argv) {
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
             SDL_RenderPresent(renderer);
         } else {
-            // Keep ImGui state valid while the menu-bar app is hidden, but do not
-            // submit invisible renderer work to the GPU.
             ImGui::EndFrame();
+        }
+        mainDirty = false;
         }
 
         if (toastContext && toastWindow && toastRenderer) {
@@ -1919,9 +1949,6 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Adaptive pacing: only run fast while the user is interacting. A visible
-        // but untouched utility window does not need game-style 60 FPS redraws,
-        // and a hidden menu-bar app should do essentially no renderer work.
         const bool asyncActive = busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool mainVisible = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
         const bool uiRecentlyActive =
@@ -1930,14 +1957,15 @@ int main(int argc, char** argv) {
         if (toastActive) {
             const Uint32 frameMs = static_cast<Uint32>(std::max(1, 1000 / std::max(1, cfg.toastFps)));
             SDL_Delay(frameMs);
-        } else if (uiRecentlyActive && mainVisible) {
-            SDL_Delay(16u);   // ~60 FPS while interacting.
         } else if (asyncActive) {
-            SDL_Delay(mainVisible ? 33u : 75u); // progress/status updates only.
-        } else if (mainVisible) {
-            SDL_Delay(100u);  // ~10 FPS when the window is visible but idle.
+            SDL_Delay(mainVisible ? 33u : 75u);
+        } else if (uiRecentlyActive && mainVisible) {
+            SDL_Delay(16u);
         } else {
-            SDL_Delay(100u);  // menu-bar idle; clipboard polling is only every 350 ms.
+            // Idle means idle: wake just often enough to process SDL/menu events
+            // and the lightweight macOS pasteboard changeCount check. No ImGui
+            // frame or GPU present occurs unless something actually changed.
+            SDL_Delay(mainVisible ? 50u : 100u);
         }
     }
 
