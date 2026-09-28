@@ -3467,7 +3467,8 @@ int main(int argc, char** argv) {
                     toastOutcome = ToastOutcome::OcrPrompt;
                     toastAutoCopied = false;
                     toastShownAt = now;
-                    toastUntil = now + std::chrono::hours(12);
+                    toastUntil = now + std::chrono::milliseconds(
+                        static_cast<int>(cfg.ocrPromptSeconds * 1000.0f));
                     if (cfg.toastSound) PlaySynthPreset(cfg.startSoundPreset, true);
                     toastSoundPlayed = true;
                     AppendActivityLog(appLog, "OCR",
@@ -4700,7 +4701,15 @@ int main(int argc, char** argv) {
         const bool toastActive =
             !toastText.empty() &&
             (toastProcessing || toastTimerPaused || toastTimerNow < toastUntil);
-        if (!toastActive && !toastText.empty()) toastText.clear();
+        if (!toastActive && !toastText.empty()) {
+            if (toastOutcome == ToastOutcome::OcrPrompt) {
+                pendingOcrImage = {};
+                pendingOcrImageReady = false;
+                status = "OCR image prompt timed out.";
+                AppendActivityLog(appLog, "OCR", status);
+            }
+            toastText.clear();
+        }
 
         if (toastContext && toastWindow && toastRenderer) {
             if (toastActive) {
@@ -4743,6 +4752,8 @@ int main(int argc, char** argv) {
                         // Do not squeeze it through the generic scan estimate; that
                         // was what allowed the buttons to overlap the bottom edge.
                         contentHeight = 178;
+                        if (cfg.resultShowLifetimeBar)
+                            contentHeight += 14;
                         if (stats.ocr.present) {
                             contentHeight += 28; // Image disclosure row.
                             if (toastOcrStatsExpanded)
@@ -5422,7 +5433,6 @@ int main(int argc, char** argv) {
                 // action row. Every popup therefore ends with the same footer.
                 if (!toastProcessing &&
                     toastOutcome != ToastOutcome::Cancelled &&
-                    toastOutcome != ToastOutcome::OcrPrompt &&
                     cfg.resultShowLifetimeBar) {
                     ImGui::Spacing();
                     const auto nowToast = std::chrono::steady_clock::now();
@@ -5431,9 +5441,12 @@ int main(int argc, char** argv) {
                             std::chrono::duration<float>(toastPausedRemaining).count())
                         : std::max(0.0f,
                             std::chrono::duration<float>(toastUntil - nowToast).count());
-                    const float toastLifetimeSeconds = acknowledgementToast
-                        ? 1.8f
-                        : cfg.toastSeconds;
+                    const float toastLifetimeSeconds =
+                        toastOutcome == ToastOutcome::OcrPrompt
+                            ? cfg.ocrPromptSeconds
+                            : acknowledgementToast
+                                ? 1.8f
+                                : cfg.toastSeconds;
                     const float fraction = toastLifetimeSeconds > 0.0f
                         ? std::clamp(remaining / toastLifetimeSeconds, 0.0f, 1.0f)
                         : 0.0f;
