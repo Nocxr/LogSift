@@ -126,7 +126,7 @@
         const bool toastWindowVisible =
             toastWindow && (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_HIDDEN) == 0;
         const bool toastNow =
-            !toastText.empty() || toastProcessing || toastTimerPaused || toastWindowVisible;
+            !toastText.empty() || toastProcessing || toastWindowVisible;
         if (hiddenNow && !asyncNow && !toastNow && !gClipboardUpdatePending &&
             !gTrayRestoreRequested && !gTrayWatchToggleRequested &&
             !gTrayOcrToggleRequested && !gTrayAutoCopyToggleRequested && !gTraySoundToggleRequested &&
@@ -410,7 +410,7 @@
         const bool asyncForWait =
             busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool toastForWait =
-            !toastText.empty() || toastProcessing || toastTimerPaused || toastVisibleForWait;
+            !toastText.empty() || toastProcessing || toastVisibleForWait;
         if (running && mainHiddenForWait && !asyncForWait && !toastForWait) {
             hasWaitingEvent = SDL_WaitEventTimeout(
                 &event, cfg.watchClipboard ? 350 : 500);

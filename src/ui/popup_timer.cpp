@@ -17,6 +17,17 @@ bool AdvancePopupTimer(PopupTimerState& timer,
         timer.mouseLeftAt = {};
     }
 
+    // Dismissing a hovered popup must release its paused state. Otherwise
+    // the tray loop keeps treating an invisible popup as active.
+    if (!hasText) {
+        timer.paused = false;
+        timer.mouseWasOver = false;
+        timer.resumeRequested = false;
+        timer.pausedRemaining = {};
+        timer.mouseLeftAt = {};
+        return false;
+    }
+
     if (!processing && hasText && hoverEnabled) {
         if (mouseOver) {
             if (!timer.paused) {

@@ -62,6 +62,13 @@ int main() {
     ok &= check(AdvancePopupTimer(timer, nextShown, nextShown, until,
                                 false, true, true, false) && !timer.paused,
                 "new popup resets hold");
+    ok &= check(AdvancePopupTimer(timer, nextShown + std::chrono::seconds(1),
+                                nextShown, until, false, true, true, true) && timer.paused,
+                "new popup can pause on hover");
+    ok &= check(!AdvancePopupTimer(timer, nextShown + std::chrono::seconds(2),
+                                 nextShown, until, false, false, false, false) &&
+                    !timer.paused && !timer.resumeRequested,
+                "dismissing hovered popup clears paused state");
 
     const auto directory = std::filesystem::temp_directory_path() /
         ("logsift-tests-" + std::to_string(
