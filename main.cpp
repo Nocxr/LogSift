@@ -2958,6 +2958,100 @@ int main(int argc, char** argv) {
     ClipboardImage pendingOcrImage;
     bool pendingOcrImageReady = false;
 
+    std::vector<RecentRun> recentRuns = LoadRecentRuns(cfg.recentLimit);
+    int recentCursor = recentRuns.empty() ? -1 : 0;
+    int selectedRecent = recentRuns.empty() ? -1 : 0;
+
+    auto applyRecentRun = [&](int index) {
+        if (recentRuns.empty()) return;
+        index = std::clamp(index, 0, static_cast<int>(recentRuns.size()) - 1);
+        const RecentRun& r = recentRuns[static_cast<size_t>(index)];
+        recentCursor = index;
+        selectedRecent = index;
+        input = r.input;
+        output = r.output;
+        questionableOutput = r.questionable;
+        inputSourceKind = r.sourceKind.empty() ? "Manual" : r.sourceKind;
+        stats = {};
+        stats.sourceKind = inputSourceKind;
+        stats.logType = r.logType;
+        stats.profile = r.profile;
+        stats.route = r.route;
+        stats.model = r.model;
+        stats.compute = r.compute;
+        stats.inputBytes = r.inputBytes;
+        stats.filteredBytes = r.filteredBytes;
+        stats.inputLines = r.inputLines;
+        stats.filteredLines = r.filteredLines;
+        stats.inputWords = r.inputWords;
+        stats.filteredWords = r.filteredWords;
+        stats.estimatedInputTokens = r.estimatedInputTokens;
+        stats.estimatedFilteredTokens = r.estimatedFilteredTokens;
+        stats.seconds = r.seconds;
+        stats.promptTokens = r.promptTokens;
+        stats.completionTokens = r.completionTokens;
+        stats.promptTokensPerSecond = r.promptTokensPerSecond;
+        stats.completionTokensPerSecond = r.completionTokensPerSecond;
+        stats.ocr = r.ocr;
+        lastInputBytes = stats.inputBytes;
+        lastFilteredBytes = stats.filteredBytes;
+        status = "Loaded recent run from " + r.timestamp + ".";
+    };
+
+    auto cycleRecentRun = [&](int delta) {
+        if (recentRuns.empty()) return;
+        if (recentCursor < 0) recentCursor = 0;
+        const int count = static_cast<int>(recentRuns.size());
+        recentCursor = (recentCursor + delta) % count;
+        if (recentCursor < 0) recentCursor += count;
+        applyRecentRun(recentCursor);
+    };
+
+    auto recordRecentRun = [&]() {
+        if (input.empty()) return;
+
+        RecentRun r;
+        r.timestamp = HistoryTimestamp();
+        r.sourceKind = stats.sourceKind;
+        r.logType = stats.logType;
+        r.profile = stats.profile;
+        r.route = stats.route;
+        r.model = stats.model;
+        r.compute = stats.compute;
+        r.input = input;
+        r.output = output;
+        r.questionable = questionableOutput;
+        r.inputBytes = stats.inputBytes;
+        r.filteredBytes = stats.filteredBytes;
+        r.inputLines = stats.inputLines;
+        r.filteredLines = stats.filteredLines;
+        r.inputWords = stats.inputWords;
+        r.filteredWords = stats.filteredWords;
+        r.estimatedInputTokens = stats.estimatedInputTokens;
+        r.estimatedFilteredTokens = stats.estimatedFilteredTokens;
+        r.seconds = stats.seconds;
+        r.promptTokens = stats.promptTokens;
+        r.completionTokens = stats.completionTokens;
+        r.promptTokensPerSecond = stats.promptTokensPerSecond;
+        r.completionTokensPerSecond = stats.completionTokensPerSecond;
+        r.ocr = stats.ocr;
+
+        if (!recentRuns.empty() &&
+            recentRuns.front().input == r.input &&
+            recentRuns.front().output == r.output &&
+            recentRuns.front().questionable == r.questionable) {
+            recentRuns.front() = std::move(r);
+        } else {
+            recentRuns.insert(recentRuns.begin(), std::move(r));
+        }
+
+        if (static_cast<int>(recentRuns.size()) > cfg.recentLimit)
+            recentRuns.resize(static_cast<size_t>(cfg.recentLimit));
+        recentCursor = 0;
+        selectedRecent = 0;
+        SaveRecentRuns(recentRuns);
+    };
+
     enum class ConnectionStage {
         Checking,
         LoadingModels,
@@ -3443,6 +3537,7 @@ int main(int argc, char** argv) {
                     toastAutoCopied = false;
                     toastShownAt = now;
                     toastUntil = now + std::chrono::milliseconds(static_cast<int>(cfg.toastSeconds * 1000.0f));
+                    recordRecentRun();
                 } else if (parseable && !filtered.empty()) {
                     input = clip;
                     const DiagnosticSplit split = LooksLikeUnrealLog(input) && (cfg.profileId=="auto" || cfg.profileId=="unreal") ? SplitUnrealDiagnostics(input, cfg) : SplitWithProfile(input, cfg);
@@ -3493,6 +3588,7 @@ int main(int argc, char** argv) {
                         toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
                         toastShownAt = std::chrono::steady_clock::now();
                         toastUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(static_cast<int>(cfg.toastSeconds * 1000.0f));
+                        recordRecentRun();
 
                     } else {
                         const Config capturedCfg = cfg;
@@ -3741,6 +3837,7 @@ int main(int argc, char** argv) {
                     }
                 }
                 stats.seconds = lastResponseSeconds;
+                recordRecentRun();
                 busy = false;
             }
         }
@@ -4191,6 +4288,7 @@ int main(int argc, char** argv) {
                         std::to_string(DiagnosticEntries(output).size()) + " diagnostics.");
                     if (autoCopied)
                         AppendActivityLog(appLog, "AUTO-COPY", "Actionable manual result auto-copied.");
+                    recordRecentRun();
                 } else {
                     status = "Sending to model...";
                     AppendActivityLog(appLog, "LLM",
