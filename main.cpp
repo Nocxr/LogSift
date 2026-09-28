@@ -1129,7 +1129,7 @@ std::string SendRaw(const Config& cfg, const std::string& userText, const std::s
             {{"role", "user"}, {"content", userText}}
         })},
         {"temperature", 0},
-        {"max_tokens", 256}
+        {"max_tokens", 1024}
     };
 
     const auto temp = std::filesystem::temp_directory_path() /
