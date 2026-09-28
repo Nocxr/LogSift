@@ -115,9 +115,7 @@
                     appLog, "MODELS", "Manual model refresh started.");
                 startupConnectionSequence = false;
                 connectionStage = ConnectionStage::LoadingModels;
-                modelListRequest = std::async(
-                    std::launch::async,
-                    [capturedCfg] { return ListModels(capturedCfg); });
+                modelListRequest = LaunchBackgroundTask([capturedCfg] { return ListModels(capturedCfg); });
             }
 
             ImGui::TableNextRow();
@@ -163,9 +161,7 @@
                 startupConnectionSequence = false;
                 connectionStage = ConnectionStage::Benchmarking;
                 benchmarkStatus = "Benchmarking...";
-                benchmarkRequest = std::async(
-                    std::launch::async,
-                    [capturedCfg] { return Benchmark(capturedCfg); });
+                benchmarkRequest = LaunchBackgroundTask([capturedCfg] { return Benchmark(capturedCfg); });
             }
             ImGui::EndDisabled();
             ImGui::SameLine();
@@ -204,9 +200,7 @@
                     applyingCompute ? "Applying..." : "Apply Compute")) {
                 const Config capturedCfg = cfg;
                 applyingCompute = true;
-                computeRequest = std::async(
-                    std::launch::async,
-                    [capturedCfg] {
+                computeRequest = LaunchBackgroundTask([capturedCfg] {
                         return ApplyComputeMode(capturedCfg);
                     });
             }

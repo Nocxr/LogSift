@@ -9,6 +9,7 @@
 #include "src/config/config_types.h"
 #include "src/config/config_store.h"
 #include "src/core/process.h"
+#include "src/core/task.h"
 
 #include <array>
 #include <chrono>

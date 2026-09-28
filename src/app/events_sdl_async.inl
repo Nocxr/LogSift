@@ -288,8 +288,7 @@
                 benchmarkStatus = "Loading model list...";
                 loadingModels = true;
                 const Config capturedCfg = cfg;
-                modelListRequest = std::async(std::launch::async,
-                    [capturedCfg] { return ListModels(capturedCfg); });
+                modelListRequest = LaunchBackgroundTask([capturedCfg] { return ListModels(capturedCfg); });
             } else {
                 connectionStage = ConnectionStage::Ready;
                 AppendActivityLog(appLog, "HEALTH",
@@ -328,8 +327,7 @@
                 AppendActivityLog(appLog, "BENCH", "Startup benchmark started for " + cfg.model + ".");
                 benchmarking = true;
                 const Config capturedCfg = cfg;
-                benchmarkRequest = std::async(std::launch::async,
-                    [capturedCfg] { return Benchmark(capturedCfg); });
+                benchmarkRequest = LaunchBackgroundTask([capturedCfg] { return Benchmark(capturedCfg); });
             } else {
                 connectionStage = ConnectionStage::Ready;
                 AppendActivityLog(appLog, "MODELS",

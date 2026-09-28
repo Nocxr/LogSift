@@ -388,8 +388,7 @@
             std::string(startupSequence ? "Startup" : warnIfUnreachable ? "Window-open" : "Manual") +
             " model health check started.");
         const Config capturedCfg = cfg;
-        healthRequest = std::async(std::launch::async,
-            [capturedCfg] { return CheckModel(capturedCfg); });
+        healthRequest = LaunchBackgroundTask([capturedCfg] { return CheckModel(capturedCfg); });
     };
 
     auto reopenMainWindow = [&]() {

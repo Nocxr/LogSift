@@ -83,6 +83,7 @@ set(LOGSIFT_SOURCE_FRAGMENTS
     src/platform/clipboard.inl
     src/config/config_types.h
     src/core/process.h
+    src/core/task.h
     src/ui/style.inl
     src/core/activity.inl
     src/config/config_store.h
