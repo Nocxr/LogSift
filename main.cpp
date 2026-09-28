@@ -515,29 +515,24 @@ bool ContainsAny(const std::string& line, const std::vector<std::string>& needle
 }
 void LoadProfiles(const char* argv0) {
     gProfiles.clear();
-    std::vector<std::filesystem::path> dirs;
-    if (argv0 && *argv0) dirs.push_back(std::filesystem::absolute(argv0).parent_path() / "log-sift-profiles");
-    dirs.push_back(std::filesystem::current_path() / "profiles");
-    for (const auto& dir : dirs) {
-        std::error_code ec;
-        if (!std::filesystem::is_directory(dir, ec)) continue;
-        gProfilesDir = dir;
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
-            try {
-                std::ifstream in(entry.path());
-                json j; in >> j;
-                LogProfile p;
-                p.id=j.value("id",entry.path().stem().string()); p.name=j.value("name",p.id);
-                p.detect=j.value("detect",std::vector<std::string>{});
-                p.highPriority=j.value("high_priority",std::vector<std::string>{});
-                p.warnings=j.value("warnings",std::vector<std::string>{});
-                p.questionable=j.value("questionable",std::vector<std::string>{});
-                p.noise=j.value("noise",std::vector<std::string>{});
-                gProfiles.push_back(std::move(p));
-            } catch (...) {}
-        }
-        if (!gProfiles.empty()) break;
+    SeedUserProfiles(argv0);
+    gProfilesDir = UserDataDir() / "profiles";
+    std::error_code ec;
+    if (!std::filesystem::is_directory(gProfilesDir, ec)) return;
+    for (const auto& entry : std::filesystem::directory_iterator(gProfilesDir, ec)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+        try {
+            std::ifstream in(entry.path());
+            json j; in >> j;
+            LogProfile p;
+            p.id=j.value("id",entry.path().stem().string()); p.name=j.value("name",p.id);
+            p.detect=j.value("detect",std::vector<std::string>{});
+            p.highPriority=j.value("high_priority",std::vector<std::string>{});
+            p.warnings=j.value("warnings",std::vector<std::string>{});
+            p.questionable=j.value("questionable",std::vector<std::string>{});
+            p.noise=j.value("noise",std::vector<std::string>{});
+            gProfiles.push_back(std::move(p));
+        } catch (...) {}
     }
     std::sort(gProfiles.begin(),gProfiles.end(),[](const LogProfile& a,const LogProfile& b){return a.name<b.name;});
 }
