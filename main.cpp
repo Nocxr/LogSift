@@ -544,6 +544,26 @@ bool MaybeAutoCopyResult(const Config& cfg, const std::string& text, std::string
 
 struct SynthTone { float hz; float start; float duration; float gain; };
 
+SDL_AudioStream* gNotificationAudioStream = nullptr;
+
+bool EnsureNotificationAudio() {
+    if (gNotificationAudioStream) return true;
+    SDL_AudioSpec spec{};
+    spec.format = SDL_AUDIO_F32;
+    spec.channels = 1;
+    spec.freq = 48000;
+    gNotificationAudioStream = SDL_OpenAudioDeviceStream(
+        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+    if (!gNotificationAudioStream) return false;
+    return SDL_ResumeAudioStreamDevice(gNotificationAudioStream);
+}
+
+void ShutdownNotificationAudio() {
+    if (!gNotificationAudioStream) return;
+    SDL_DestroyAudioStream(gNotificationAudioStream);
+    gNotificationAudioStream = nullptr;
+}
+
 std::vector<float> MakeNotificationPcm(const std::vector<SynthTone>& tones, float totalSeconds) {
     constexpr int rate = 48000;
     const int frames = static_cast<int>(totalSeconds * rate);
@@ -587,15 +607,15 @@ void PlaySynthPreset(int preset, bool startEvent) {
         else if (preset==7) { tones={{740,0.00f,0.10f,0.14f},{980,0.08f,0.12f,0.17f},{1240,0.16f,0.13f,0.12f}}; seconds=0.34f; } // Spark
         else { tones={{360,0.00f,0.30f,0.17f},{270,0.10f,0.34f,0.13f}}; seconds=0.50f; } // Low
     }
-    auto pcm=MakeNotificationPcm(tones,seconds);
-    SDL_AudioSpec spec{}; spec.format=SDL_AUDIO_F32; spec.channels=1; spec.freq=48000;
-    SDL_AudioStream* stream=SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,&spec,nullptr,nullptr);
-    if(!stream) return;
-    SDL_PutAudioStreamData(stream,pcm.data(),(int)(pcm.size()*sizeof(float)));
-    SDL_FlushAudioStream(stream);
-    SDL_ResumeAudioStreamDevice(stream);
-    // SDL owns active stream only until destroyed; defer destruction after estimated playback.
-    std::thread([stream,ms=(int)(seconds*1000)+80](){ SDL_Delay(ms); SDL_DestroyAudioStream(stream); }).detach();
+    auto pcm = MakeNotificationPcm(tones, seconds);
+    if (!EnsureNotificationAudio()) return;
+
+    // Reuse one audio device/stream for the entire app lifetime. Repeatedly opening
+    // and destroying the default device can cause audible pops on Bluetooth/headphones.
+    SDL_ClearAudioStream(gNotificationAudioStream);
+    SDL_PutAudioStreamData(gNotificationAudioStream, pcm.data(),
+        static_cast<int>(pcm.size() * sizeof(float)));
+    SDL_FlushAudioStream(gNotificationAudioStream);
 }
 
 void PlayEndSound(const Config& cfg, bool failure=false) {
@@ -667,6 +687,23 @@ std::string ShellQuote(const std::string& s) {
     for (char c : s) out += (c == '\'') ? "'\\''" : std::string(1, c);
     return out + "'";
 #endif
+}
+
+bool IsEndpointUnavailableError(const std::string& message) {
+    std::string lower = message;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+    return lower.find("curl failed (exit 6)") != std::string::npos ||
+           lower.find("curl failed (exit 7)") != std::string::npos ||
+           lower.find("curl failed (exit 28)") != std::string::npos ||
+           lower.find("could not resolve") != std::string::npos ||
+           lower.find("failed to connect") != std::string::npos ||
+           lower.find("connection refused") != std::string::npos ||
+           lower.find("could not connect") != std::string::npos ||
+           lower.find("timeout was reached") != std::string::npos ||
+           lower.find("timed out") != std::string::npos ||
+           lower.find("could not start curl") != std::string::npos;
 }
 
 std::string ReadPipe(const std::string& command) {
@@ -1569,7 +1606,7 @@ int main(int argc, char** argv) {
     std::chrono::steady_clock::time_point toastUntil{};
     bool toastProcessing = false;
     bool toastSoundPlayed = false;
-    enum class ToastOutcome { Processing, Success, Empty, Fallback, Failure };
+    enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
     std::future<SiftResult> request;
@@ -1871,6 +1908,7 @@ int main(int argc, char** argv) {
                         toastUntil = std::chrono::steady_clock::now() + std::chrono::seconds(4);
                     }
                 } catch (const std::exception& e) {
+                    const bool endpointUnavailable = IsEndpointUnavailableError(e.what());
                     const DiagnosticSplit fallbackSplit =
                         LooksLikeUnrealLog(input) && (cfg.profileId == "auto" || cfg.profileId == "unreal")
                             ? SplitUnrealDiagnostics(input, cfg)
@@ -1884,27 +1922,41 @@ int main(int argc, char** argv) {
                             ? FastStructuredResult(fallbackCandidate)
                             : DedupeLines(fallbackCandidate), cfg);
                     stats.filteredBytes = fallbackCandidate.size();
-                    stats.route = "Offline fallback";
+                    stats.route = endpointUnavailable ? "Offline fallback" : "Model fallback";
                     stats.promptTokens = 0;
                     stats.completionTokens = 0;
                     stats.promptTokensPerSecond = 0.0;
                     stats.completionTokensPerSecond = 0.0;
                     stats.estimatedPromptTokensPerSecond = 0.0;
-                    health = "Offline / unavailable";
+
+                    if (endpointUnavailable) {
+                        health = "Offline / unreachable";
+                    } else {
+                        // The endpoint responded; the model/result path failed after connectivity succeeded.
+                        health = "Online / response issue";
+                    }
+
                     const bool autoCopied = MaybeAutoCopyResult(cfg, output, lastClipboardText);
                     if (autoCopied) markOwnClipboardWrite();
-                    status = std::string(autoCopied
-                        ? "LLM unavailable - local fallback used and actionable result auto-copied. "
-                        : "LLM unavailable - local fallback used. ") + e.what();
+
+                    const char* fallbackName = endpointUnavailable ? "Offline fallback" : "Model fallback";
+                    status = std::string(fallbackName) +
+                        (autoCopied ? " - local result auto-copied. " : " - local filter used. ") +
+                        e.what();
+
                     if (cfg.toastSound) {
-                        PlaySynthPreset(cfg.offlineSoundPreset, false);
+                        PlaySynthPreset(
+                            endpointUnavailable ? cfg.offlineSoundPreset : cfg.failureSoundPreset,
+                            false);
                         toastSoundPlayed = true;
                     }
 
                     if (cfg.watchClipboard) {
-                        toastText = "Offline fallback";
+                        toastText = endpointUnavailable ? "Offline fallback" : "Model fallback";
                         toastProcessing = false;
-                        toastOutcome = ToastOutcome::Fallback;
+                        toastOutcome = endpointUnavailable
+                            ? ToastOutcome::OfflineFallback
+                            : ToastOutcome::ModelFallback;
                         toastSoundPlayed = cfg.toastSound;
                         toastShownAt = std::chrono::steady_clock::now();
                         toastUntil = toastShownAt + std::chrono::milliseconds(
@@ -2344,8 +2396,10 @@ int main(int argc, char** argv) {
 
         if (!toastProcessing && !toastText.empty() && cfg.toastSound && !toastSoundPlayed) {
             toastSoundPlayed = true;
-            if (toastOutcome == ToastOutcome::Fallback) {
+            if (toastOutcome == ToastOutcome::OfflineFallback) {
                 PlaySynthPreset(cfg.offlineSoundPreset, false);
+            } else if (toastOutcome == ToastOutcome::ModelFallback) {
+                PlaySynthPreset(cfg.failureSoundPreset, false);
             } else {
                 PlayEndSound(cfg, toastOutcome == ToastOutcome::Failure);
             }
@@ -2385,12 +2439,15 @@ int main(int argc, char** argv) {
                 ImVec4 outcomeColor(cfg.toastAccent[0], cfg.toastAccent[1], cfg.toastAccent[2], 1.0f);
                 if (toastOutcome == ToastOutcome::Success) outcomeColor = ImVec4(0.22f, 0.78f, 0.40f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Empty) outcomeColor = ImVec4(0.88f, 0.68f, 0.20f, 1.0f);
-                else if (toastOutcome == ToastOutcome::Fallback) outcomeColor = ImVec4(0.20f, 0.82f, 1.00f, 1.0f);
+                else if (toastOutcome == ToastOutcome::OfflineFallback) outcomeColor = ImVec4(0.20f, 0.82f, 1.00f, 1.0f);
+                else if (toastOutcome == ToastOutcome::ModelFallback) outcomeColor = ImVec4(0.78f, 0.48f, 1.00f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Failure) outcomeColor = ImVec4(0.92f, 0.28f, 0.28f, 1.0f);
                 const ImVec4 toastBackground =
-                    toastOutcome == ToastOutcome::Fallback
+                    toastOutcome == ToastOutcome::OfflineFallback
                         ? ImVec4(0.035f, 0.12f, 0.18f, 1.0f)
-                        : ImVec4(cfg.toastBg[0], cfg.toastBg[1], cfg.toastBg[2], 1.0f);
+                        : toastOutcome == ToastOutcome::ModelFallback
+                            ? ImVec4(0.11f, 0.055f, 0.16f, 1.0f)
+                            : ImVec4(cfg.toastBg[0], cfg.toastBg[1], cfg.toastBg[2], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_WindowBg, toastBackground);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 13));
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 7));
@@ -2401,7 +2458,8 @@ int main(int argc, char** argv) {
                 const char* outcomeLabel = toastProcessing ? "LOG SIFT - SCANNING" :
                     toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
-                    toastOutcome == ToastOutcome::Fallback ? "LOG SIFT - OFFLINE FALLBACK" :
+                    toastOutcome == ToastOutcome::OfflineFallback ? "LOG SIFT - OFFLINE FALLBACK" :
+                    toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL FALLBACK" :
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
                 ImGui::SameLine();
@@ -2414,10 +2472,14 @@ int main(int argc, char** argv) {
                     ImGui::TextDisabled("Prefiltered %zu -> %zu bytes  |  %.1f s elapsed", stats.inputBytes, stats.filteredBytes, elapsed);
                 } else {
                     ImGui::Text("%zu diagnostic%s", entries, entries == 1 ? "" : "s");
-                    if (toastOutcome == ToastOutcome::Fallback) {
+                    if (toastOutcome == ToastOutcome::OfflineFallback) {
                         ImGui::Separator();
-                        ImGui::TextColored(outcomeColor, "MODEL OFFLINE - LOCAL FILTER ONLY");
+                        ImGui::TextColored(outcomeColor, "MODEL ENDPOINT OFFLINE - LOCAL FILTER ONLY");
                         ImGui::TextWrapped("Showing conservative local results; more candidates may be included.");
+                    } else if (toastOutcome == ToastOutcome::ModelFallback) {
+                        ImGui::Separator();
+                        ImGui::TextColored(outcomeColor, "MODEL ONLINE - RESPONSE UNUSABLE");
+                        ImGui::TextWrapped("The endpoint responded, but Log Sift used the conservative local filter instead.");
                     }
                 }
                 std::string statLine;
@@ -2565,6 +2627,7 @@ int main(int argc, char** argv) {
     ImGui::DestroyContext(mainContext);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    ShutdownNotificationAudio();
     SDL_Quit();
     return 0;
 }
