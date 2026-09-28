@@ -188,6 +188,7 @@ struct Config {
     int startSoundPreset = 1;
     int endSoundPreset = 3;
     int offlineSoundPreset = 5;
+    int failureSoundPreset = 4;
     std::string toastSoundFile;
     bool autoCopyResults = false;
     bool watchClipboard = true;
@@ -234,6 +235,7 @@ json ConfigToJson(const Config& cfg) {
         {"start_sound_preset", cfg.startSoundPreset},
         {"end_sound_preset", cfg.endSoundPreset},
         {"offline_sound_preset", cfg.offlineSoundPreset},
+        {"failure_sound_preset", cfg.failureSoundPreset},
         {"toast_sound_file", cfg.toastSoundFile},
         {"toast_show_type", cfg.toastShowType},
         {"toast_show_bytes", cfg.toastShowBytes},
@@ -270,6 +272,7 @@ void LoadConfig(Config& cfg) {
         cfg.startSoundPreset = j.value("start_sound_preset", cfg.startSoundPreset);
         cfg.endSoundPreset = j.value("end_sound_preset", cfg.endSoundPreset);
         cfg.offlineSoundPreset = j.value("offline_sound_preset", cfg.offlineSoundPreset);
+        cfg.failureSoundPreset = j.value("failure_sound_preset", cfg.failureSoundPreset);
         cfg.toastSoundFile = j.value("toast_sound_file", cfg.toastSoundFile);
         cfg.toastShowType = j.value("toast_show_type", cfg.toastShowType);
         cfg.toastShowBytes = j.value("toast_show_bytes", cfg.toastShowBytes);
@@ -393,12 +396,12 @@ void PlaySynthPreset(int preset, bool startEvent) {
 
 void PlayEndSound(const Config& cfg, bool failure=false) {
 #ifdef _WIN32
-    if (!cfg.toastSoundFile.empty()) {
+    if (!failure && !cfg.toastSoundFile.empty()) {
         PlaySoundA(cfg.toastSoundFile.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
         return;
     }
 #endif
-    PlaySynthPreset(failure ? 4 : cfg.endSoundPreset, false);
+    PlaySynthPreset(failure ? cfg.failureSoundPreset : cfg.endSoundPreset, false);
 }
 
 
@@ -1987,6 +1990,12 @@ int main(int argc, char** argv) {
                 ImGui::SameLine();
                 if (ImGui::Button("Test##offline_sound")) PlaySynthPreset(cfg.offlineSoundPreset, false);
                 ImGui::SameLine(); ImGui::TextDisabled("Distinct sound when the model fails and local filtering takes over.");
+
+                ImGui::TextUnformatted("Failure"); ImGui::SameLine();
+                ImGui::SetNextItemWidth(120); ImGui::Combo("##failure_sound", &cfg.failureSoundPreset, endSounds, 9);
+                ImGui::SameLine();
+                if (ImGui::Button("Test##failure_sound")) PlaySynthPreset(cfg.failureSoundPreset, false);
+                ImGui::SameLine(); ImGui::TextDisabled("Used for hard failures that cannot fall back.");
 
                 ImGui::TextUnformatted("Custom end sound"); ImGui::SameLine();
                 ImGui::SetNextItemWidth(320);
