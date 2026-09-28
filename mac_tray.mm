@@ -70,7 +70,7 @@ extern "C" void LogSiftMacTrayInit(void) {
 
         NSMenu* menu = [NSMenu new];
 
-        NSMenuItem* open = [[NSMenuItem alloc] initWithTitle:@"Open Log Sift"
+        NSMenuItem* open = [[NSMenuItem alloc] initWithTitle:@"Open"
                                                      action:@selector(openApp:)
                                               keyEquivalent:@""];
         open.target = gTarget;
@@ -98,7 +98,7 @@ extern "C" void LogSiftMacTrayInit(void) {
 
         [menu addItem:[NSMenuItem separatorItem]];
 
-        NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:@"Quit Log Sift"
+        NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:@"Exit"
                                                      action:@selector(quitApp:)
                                               keyEquivalent:@""];
         quit.target = gTarget;
