@@ -2672,7 +2672,8 @@ int main(int argc, char** argv) {
 #endif
     std::string lastSavedConfig = ConfigToJson(cfg).dump();
 
-    std::string input, output, questionableOutput, prompt = kDefaultPrompt, status = "Paste text or drop a log file.";
+    std::string input, output, questionableOutput, prompt = kDefaultPrompt,
+        status = "Paste text or drop a log/image file.";
     std::string appLog;
     CopyFlashState copyFlash;
     AppendActivityLog(appLog, "INFO", "Log Sift started.");
