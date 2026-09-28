@@ -2,6 +2,7 @@
 
 static bool gOpen = false;
 static bool gToggleWatch = false;
+static bool gToggleOcr = false;
 static bool gToggleAutoCopy = false;
 static bool gToggleSound = false;
 static bool gOpenLog = false;
@@ -10,12 +11,14 @@ static bool gQuit = false;
 
 static NSStatusItem* gItem = nil;
 static NSMenuItem* gWatchItem = nil;
+static NSMenuItem* gOcrItem = nil;
 static NSMenuItem* gAutoCopyItem = nil;
 static NSMenuItem* gSoundItem = nil;
 
 @interface LogSiftStatusTarget : NSObject
 - (void)openApp:(id)sender;
 - (void)toggleWatch:(id)sender;
+- (void)toggleOcr:(id)sender;
 - (void)toggleAutoCopy:(id)sender;
 - (void)toggleSound:(id)sender;
 - (void)openLog:(id)sender;
@@ -27,6 +30,7 @@ static NSMenuItem* gSoundItem = nil;
 @implementation LogSiftStatusTarget
 - (void)openApp:(id)sender { (void)sender; gOpen = true; }
 - (void)toggleWatch:(id)sender { (void)sender; gToggleWatch = true; }
+- (void)toggleOcr:(id)sender { (void)sender; gToggleOcr = true; }
 - (void)toggleAutoCopy:(id)sender { (void)sender; gToggleAutoCopy = true; }
 - (void)toggleSound:(id)sender { (void)sender; gToggleSound = true; }
 - (void)openLog:(id)sender { (void)sender; gOpenLog = true; }
@@ -94,6 +98,13 @@ extern "C" void LogSiftMacTrayInit(void) {
         gWatchItem.state = NSControlStateValueOn;
         [menu addItem:gWatchItem];
 
+        gOcrItem = [[NSMenuItem alloc] initWithTitle:@"OCR"
+                                              action:@selector(toggleOcr:)
+                                       keyEquivalent:@""];
+        gOcrItem.target = gTarget;
+        gOcrItem.state = NSControlStateValueOn;
+        [menu addItem:gOcrItem];
+
         gAutoCopyItem = [[NSMenuItem alloc] initWithTitle:@"Auto Copy"
                                                    action:@selector(toggleAutoCopy:)
                                             keyEquivalent:@""];
@@ -138,6 +149,12 @@ extern "C" bool LogSiftMacTrayTakeToggleWatch(void) {
     return value;
 }
 
+extern "C" bool LogSiftMacTrayTakeToggleOcr(void) {
+    const bool value = gToggleOcr;
+    gToggleOcr = false;
+    return value;
+}
+
 extern "C" bool LogSiftMacTrayTakeToggleAutoCopy(void) {
     const bool value = gToggleAutoCopy;
     gToggleAutoCopy = false;
@@ -171,6 +188,12 @@ extern "C" bool LogSiftMacTrayTakeQuit(void) {
 extern "C" void LogSiftMacTraySetWatch(bool enabled) {
     if (gWatchItem) {
         gWatchItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+}
+
+extern "C" void LogSiftMacTraySetOcr(bool enabled) {
+    if (gOcrItem) {
+        gOcrItem.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
     }
 }
 
