@@ -307,11 +307,32 @@ struct Config {
     bool autoCopyResults = false;
     bool watchClipboard = true;
     bool preferFastPath = true;
+    // Legacy shared popup toggles are kept for settings migration.
     bool toastShowType = true;
     bool toastShowBytes = true;
     bool toastShowTime = true;
     bool toastShowCounts = true;
     bool toastShowPreview = true;
+
+    bool scanShowSource = true;
+    bool scanShowProgress = true;
+    bool scanShowPrefilterCounts = true;
+    bool scanShowEstimatedTokens = true;
+    bool scanShowBytesReduction = true;
+    bool scanShowElapsedTime = true;
+
+    bool resultShowDiagnosticTotal = true;
+    bool resultShowSource = true;
+    bool resultShowFallbackNotice = true;
+    bool resultShowPrefilterCounts = true;
+    bool resultShowEstimatedTokens = true;
+    bool resultShowRealTokens = true;
+    bool resultShowBytesReduction = true;
+    bool resultShowTime = true;
+    bool resultShowAutoCopy = true;
+    bool resultShowCounts = true;
+    bool resultShowPreview = true;
+
     int toastPreviewLines = 3;
     bool toastAcknowledgeClipboard = false;
 };
@@ -431,6 +452,26 @@ json ConfigToJson(const Config& cfg) {
         {"toast_show_time", cfg.toastShowTime},
         {"toast_show_counts", cfg.toastShowCounts},
         {"toast_show_preview", cfg.toastShowPreview},
+
+        {"popup_scan_show_source", cfg.scanShowSource},
+        {"popup_scan_show_progress", cfg.scanShowProgress},
+        {"popup_scan_show_prefilter_counts", cfg.scanShowPrefilterCounts},
+        {"popup_scan_show_estimated_tokens", cfg.scanShowEstimatedTokens},
+        {"popup_scan_show_bytes_reduction", cfg.scanShowBytesReduction},
+        {"popup_scan_show_elapsed_time", cfg.scanShowElapsedTime},
+
+        {"popup_result_show_diagnostic_total", cfg.resultShowDiagnosticTotal},
+        {"popup_result_show_source", cfg.resultShowSource},
+        {"popup_result_show_fallback_notice", cfg.resultShowFallbackNotice},
+        {"popup_result_show_prefilter_counts", cfg.resultShowPrefilterCounts},
+        {"popup_result_show_estimated_tokens", cfg.resultShowEstimatedTokens},
+        {"popup_result_show_real_tokens", cfg.resultShowRealTokens},
+        {"popup_result_show_bytes_reduction", cfg.resultShowBytesReduction},
+        {"popup_result_show_time", cfg.resultShowTime},
+        {"popup_result_show_auto_copy", cfg.resultShowAutoCopy},
+        {"popup_result_show_counts", cfg.resultShowCounts},
+        {"popup_result_show_preview", cfg.resultShowPreview},
+
         {"toast_preview_lines", cfg.toastPreviewLines},
         {"toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard},
         {"auto_copy_results", cfg.autoCopyResults},
@@ -470,6 +511,26 @@ void LoadConfig(Config& cfg) {
         cfg.toastShowTime = j.value("toast_show_time", cfg.toastShowTime);
         cfg.toastShowCounts = j.value("toast_show_counts", cfg.toastShowCounts);
         cfg.toastShowPreview = j.value("toast_show_preview", cfg.toastShowPreview);
+
+        cfg.scanShowSource = j.value("popup_scan_show_source", cfg.toastShowType);
+        cfg.scanShowProgress = j.value("popup_scan_show_progress", true);
+        cfg.scanShowPrefilterCounts = j.value("popup_scan_show_prefilter_counts", cfg.toastShowBytes);
+        cfg.scanShowEstimatedTokens = j.value("popup_scan_show_estimated_tokens", cfg.toastShowBytes);
+        cfg.scanShowBytesReduction = j.value("popup_scan_show_bytes_reduction", cfg.toastShowBytes);
+        cfg.scanShowElapsedTime = j.value("popup_scan_show_elapsed_time", cfg.toastShowTime);
+
+        cfg.resultShowDiagnosticTotal = j.value("popup_result_show_diagnostic_total", true);
+        cfg.resultShowSource = j.value("popup_result_show_source", cfg.toastShowType);
+        cfg.resultShowFallbackNotice = j.value("popup_result_show_fallback_notice", true);
+        cfg.resultShowPrefilterCounts = j.value("popup_result_show_prefilter_counts", cfg.toastShowBytes);
+        cfg.resultShowEstimatedTokens = j.value("popup_result_show_estimated_tokens", cfg.toastShowBytes);
+        cfg.resultShowRealTokens = j.value("popup_result_show_real_tokens", cfg.toastShowBytes);
+        cfg.resultShowBytesReduction = j.value("popup_result_show_bytes_reduction", cfg.toastShowBytes);
+        cfg.resultShowTime = j.value("popup_result_show_time", cfg.toastShowTime);
+        cfg.resultShowAutoCopy = j.value("popup_result_show_auto_copy", true);
+        cfg.resultShowCounts = j.value("popup_result_show_counts", cfg.toastShowCounts);
+        cfg.resultShowPreview = j.value("popup_result_show_preview", cfg.toastShowPreview);
+
         cfg.toastPreviewLines = std::clamp(j.value("toast_preview_lines", cfg.toastPreviewLines), 1, 10);
         cfg.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard);
         cfg.autoCopyResults = j.value("auto_copy_results", cfg.autoCopyResults);
@@ -3053,18 +3114,38 @@ int main(int argc, char** argv) {
                 ImGui::EndDisabled();
                 ImGui::SameLine();
                 if (ImGui::Button("Test##custom_end")) PlayEndSound(cfg);
-                ImGui::SeparatorText("STATS SHOWN");
-                ImGui::Checkbox("Log type", &cfg.toastShowType);
-                ImGui::SameLine(); ImGui::Checkbox("Bytes / reduction", &cfg.toastShowBytes);
-                ImGui::SameLine(); ImGui::Checkbox("Processing time", &cfg.toastShowTime);
-                ImGui::SameLine(); ImGui::Checkbox("Included / questionable counts", &cfg.toastShowCounts);
-                ImGui::Checkbox("Diagnostic preview", &cfg.toastShowPreview);
-                ImGui::SameLine();
+                ImGui::SeparatorText("POPUP CONTENT");
+                ImGui::TextColored(ImVec4(0.35f, 0.75f, 1.0f, 1.0f), "Scanning");
+                if (ImGui::BeginTable("##scan_popup_content", 3, ImGuiTableFlags_SizingStretchSame)) {
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Source / log type##scan", &cfg.scanShowSource);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Progress / chunking##scan", &cfg.scanShowProgress);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Lines / words##scan", &cfg.scanShowPrefilterCounts);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Estimated tokens##scan", &cfg.scanShowEstimatedTokens);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Bytes / reduction##scan", &cfg.scanShowBytesReduction);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Elapsed time##scan", &cfg.scanShowElapsedTime);
+                    ImGui::EndTable();
+                }
+
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.30f, 0.90f, 0.48f, 1.0f), "Complete / Result");
+                if (ImGui::BeginTable("##result_popup_content", 3, ImGuiTableFlags_SizingStretchSame)) {
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Diagnostic total##result", &cfg.resultShowDiagnosticTotal);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Source / log type##result", &cfg.resultShowSource);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Fallback notice##result", &cfg.resultShowFallbackNotice);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Lines / words##result", &cfg.resultShowPrefilterCounts);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Estimated tokens##result", &cfg.resultShowEstimatedTokens);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Real LLM tokens##result", &cfg.resultShowRealTokens);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Bytes / reduction##result", &cfg.resultShowBytesReduction);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Completed time##result", &cfg.resultShowTime);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Auto-copy banner##result", &cfg.resultShowAutoCopy);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Included / questionable##result", &cfg.resultShowCounts);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Diagnostic preview##result", &cfg.resultShowPreview);
+                    ImGui::EndTable();
+                }
                 ImGui::SetNextItemWidth(110);
-                ImGui::SliderInt("##preview_lines", &cfg.toastPreviewLines, 1, 10, "%d lines");
+                ImGui::SliderInt("Preview lines", &cfg.toastPreviewLines, 1, 10, "%d");
                 ImGui::SameLine();
-                ImGui::TextDisabled("Preview lines");
-                ImGui::TextDisabled("These control the compact always-on-top notification.");
+                ImGui::TextDisabled("Used when Diagnostic preview is enabled.");
                 ImGui::EndChild();
                 ImGui::EndTabItem();
             }
