@@ -4003,6 +4003,36 @@ int main(int argc, char** argv) {
                 ImGui::SetCurrentContext(mainContext);
                 ImGui_ImplSDL3_ProcessEvent(&event);
             }
+            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                const SDL_WindowID mainWindowId = SDL_GetWindowID(window);
+                if (event.window.windowID == mainWindowId) {
+#if defined(_WIN32) || defined(__APPLE__)
+                    // The app is tray/menu-bar resident. Handle the main window's
+                    // close request directly so it still hides when the separate
+                    // notification window is currently open.
+                    SDL_HideWindow(window);
+                    AppendActivityLog(
+                        appLog, "UI", "Main window hidden from title-bar close.");
+#else
+                    running = false;
+#endif
+                } else if (toastWindowId != 0 &&
+                           event.window.windowID == toastWindowId) {
+                    // Native close/Alt+F4 on the notification should behave like
+                    // its in-popup X: hide only the popup and leave any active sift
+                    // running. Discard a pending OCR confirmation because there is
+                    // no longer a visible way to accept it.
+                    if (toastOutcome == ToastOutcome::OcrPrompt) {
+                        pendingOcrImage = {};
+                        pendingOcrImageReady = false;
+                    }
+                    toastText.clear();
+                    SDL_HideWindow(toastWindow);
+                    AppendActivityLog(
+                        appLog, "UI", "Notification closed from window controls.");
+                }
+            }
+
             if (event.type == SDL_EVENT_QUIT) {
 #if defined(_WIN32) || defined(__APPLE__)
                 SDL_HideWindow(window);
