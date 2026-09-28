@@ -1095,6 +1095,8 @@ int main(int argc, char** argv) {
     std::chrono::steady_clock::time_point toastShownAt{};
     bool preferFastPath = true;
     std::future<SiftResult> request;
+    unsigned long long requestGeneration = 0;
+    unsigned long long activeRequestGeneration = 0;
     std::future<std::string> healthRequest;
     std::future<std::string> benchmarkRequest;
     std::future<std::vector<std::string>> modelListRequest;
@@ -1216,6 +1218,12 @@ int main(int argc, char** argv) {
 #endif
             ) {
                 lastClipboardText = clip;
+                ++requestGeneration;
+                output.clear();
+                questionableOutput.clear();
+                lastInputBytes = 0;
+                lastFilteredBytes = 0;
+                stats = {};
                 if (cfg.toastAcknowledgeClipboard) {
                     toastText = "Clipboard detected";
                     toastProcessing = false;
@@ -1278,6 +1286,7 @@ int main(int argc, char** argv) {
                         const std::string capturedInput = input;
                         const std::string capturedPrompt = prompt;
                         status = "Clipboard log detected - sifting...";
+                        activeRequestGeneration = requestGeneration;
                         busy = true;
                         request = std::async(std::launch::async, [capturedCfg, capturedInput, capturedPrompt] {
                             return Send(capturedCfg, capturedInput, capturedPrompt);
@@ -1318,7 +1327,10 @@ int main(int argc, char** argv) {
         if (busy && request.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             lastResponseSeconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - requestStarted).count();
-            try {
+            if (activeRequestGeneration != requestGeneration) {
+                try { (void)request.get(); } catch (...) {}
+                busy = false;
+            } else try {
                 const SiftResult result = request.get();
                 output = result.text;
                 stats.promptTokens = result.promptTokens;
@@ -1371,6 +1383,7 @@ int main(int argc, char** argv) {
             }
             stats.seconds = lastResponseSeconds;
             busy = false;
+            }
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             try { health = healthRequest.get(); }
@@ -1561,6 +1574,8 @@ int main(int argc, char** argv) {
                 status = "Done - deterministic fast path.";
             } else {
                 status = "Sending to model...";
+                ++requestGeneration;
+                activeRequestGeneration = requestGeneration;
                 busy = true;
                 request = std::async(std::launch::async, [capturedCfg, capturedInput, capturedPrompt] {
                     return Send(capturedCfg, capturedInput, capturedPrompt);
@@ -1606,6 +1621,7 @@ int main(int argc, char** argv) {
         ImGui::BeginDisabled(output.empty());
         if (ImGui::Button("Copy Result")) {
             SDL_SetClipboardText(output.c_str());
+            lastClipboardText = output;
             status = "Result copied.";
         }
         ImGui::EndDisabled();
@@ -1757,9 +1773,13 @@ int main(int argc, char** argv) {
                 ImVec4 outcomeColor(cfg.toastAccent[0], cfg.toastAccent[1], cfg.toastAccent[2], 1.0f);
                 if (toastOutcome == ToastOutcome::Success) outcomeColor = ImVec4(0.22f, 0.78f, 0.40f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Empty) outcomeColor = ImVec4(0.88f, 0.68f, 0.20f, 1.0f);
-                else if (toastOutcome == ToastOutcome::Fallback) outcomeColor = ImVec4(0.25f, 0.72f, 0.95f, 1.0f);
+                else if (toastOutcome == ToastOutcome::Fallback) outcomeColor = ImVec4(0.20f, 0.82f, 1.00f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Failure) outcomeColor = ImVec4(0.92f, 0.28f, 0.28f, 1.0f);
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(cfg.toastBg[0], cfg.toastBg[1], cfg.toastBg[2], 1.0f));
+                const ImVec4 toastBackground =
+                    toastOutcome == ToastOutcome::Fallback
+                        ? ImVec4(0.035f, 0.12f, 0.18f, 1.0f)
+                        : ImVec4(cfg.toastBg[0], cfg.toastBg[1], cfg.toastBg[2], 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, toastBackground);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 13));
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 7));
                 ImGui::Begin("##toast_root", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -1782,8 +1802,11 @@ int main(int argc, char** argv) {
                     ImGui::TextDisabled("Prefiltered %zu -> %zu bytes  |  %.1f s elapsed", stats.inputBytes, stats.filteredBytes, elapsed);
                 } else {
                     ImGui::Text("%zu diagnostic%s", entries, entries == 1 ? "" : "s");
-                    if (toastOutcome == ToastOutcome::Fallback)
-                        ImGui::TextColored(outcomeColor, "LLM unavailable - local filter used");
+                    if (toastOutcome == ToastOutcome::Fallback) {
+                        ImGui::Separator();
+                        ImGui::TextColored(outcomeColor, "MODEL OFFLINE - LOCAL FILTER ONLY");
+                        ImGui::TextWrapped("Showing conservative local results; more candidates may be included.");
+                    }
                 }
                 std::string statLine;
                 if (cfg.toastShowType) statLine += stats.logType + " / " + stats.profile;
@@ -1847,6 +1870,7 @@ int main(int argc, char** argv) {
                 ImGui::BeginDisabled(output.empty());
                 if (ImGui::Button("Copy Results", {copyW, buttonH})) {
                     SDL_SetClipboardText(output.c_str());
+                    lastClipboardText = output;
 #ifdef _WIN32
                     lastClipboardSequence = GetClipboardSequenceNumber();
 #endif
