@@ -192,6 +192,7 @@ struct Config {
     std::string toastSoundFile;
     bool autoCopyResults = false;
     bool watchClipboard = true;
+    bool preferFastPath = true;
     bool toastShowType = true;
     bool toastShowBytes = true;
     bool toastShowTime = true;
@@ -1993,7 +1994,7 @@ int main(int argc, char** argv) {
                 ImGui::SetNextItemWidth(120); ImGui::Combo("##end_sound", &cfg.endSoundPreset, endSounds, 9);
                 ImGui::SameLine();
                 if (ImGui::Button("Test##end_sound")) PlaySynthPreset(cfg.endSoundPreset, false);
-                ImGui::SameLine(); ImGui::TextDisabled("Normal completion sound; hard failures still use Attention.");
+                ImGui::SameLine(); ImGui::TextDisabled("Normal completion sound.");
 
                 ImGui::TextUnformatted("Offline fallback"); ImGui::SameLine();
                 ImGui::SetNextItemWidth(120); ImGui::Combo("##offline_sound", &cfg.offlineSoundPreset, endSounds, 9);
