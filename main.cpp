@@ -1595,8 +1595,9 @@ int main(int argc, char** argv) {
     EnsureNotificationAudio();
     SDL_WindowFlags mainWindowFlags = SDL_WINDOW_RESIZABLE;
     if (backgroundMode) mainWindowFlags |= SDL_WINDOW_HIDDEN;
-    SDL_Window* window = SDL_CreateWindow("Log Sift", 1100, 760, mainWindowFlags);
+    SDL_Window* window = SDL_CreateWindow("Log Sift", 1180, 800, mainWindowFlags);
     if (!window) return 1;
+    SDL_SetWindowMinimumSize(window, 1100, 760);
 #ifdef _WIN32
     gAppIconSmall = CreateLogSiftHIcon(32);
     gAppIconBig = CreateLogSiftHIcon(64);
@@ -2075,7 +2076,9 @@ int main(int argc, char** argv) {
 
         ImGui::SetNextWindowPos({0,0});
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("Log Sift", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+        ImGui::Begin("Log Sift", nullptr,
+            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
         ImGui::SeparatorText("MODEL / CONNECTION");
         ImGui::TextUnformatted("Endpoint"); ImGui::SameLine();
@@ -2378,6 +2381,7 @@ int main(int argc, char** argv) {
             ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Settings")) {
+                ImGui::BeginChild("##settings_scroller", ImVec2(0, 0), ImGuiChildFlags_None);
                 ImGui::SeparatorText("GENERAL");
                 if (ImGui::Checkbox("Start Log Sift at login", &startAtLogin)) {
                     bool applied = false;
@@ -2493,6 +2497,7 @@ int main(int argc, char** argv) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("Preview lines");
                 ImGui::TextDisabled("These control the compact always-on-top notification.");
+                ImGui::EndChild();
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
