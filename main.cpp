@@ -743,7 +743,7 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
     json body = {
         {"model", cfg.model},
         {"messages", json::array({
-            {{"role", "system"}, {"content", "Return only raw diagnostic log lines copied from the user input. No analysis, explanation, headings, rules, reasoning, markdown, or prompt text. If nothing useful exists, return NO_DIAGNOSTICS."}},
+            {{"role", "system"}, {"content", prompt}},
             {{"role", "user"}, {"content", std::string("Select the highest-value diagnostics from these candidate log lines. Output at most 12 lines, verbatim.\n\n") + modelInput}}
         })},
         {"temperature", 0},
@@ -1066,7 +1066,6 @@ int main(int argc, char** argv) {
     std::string input, output, questionableOutput, prompt = kDefaultPrompt, status = "Paste text or drop a log file.";
     std::string appLog = "Log Sift started.\\n";
     bool showAppLog = false;
-    bool notifyDone = false;
     bool watchClipboard = true;
     std::string lastClipboardText;
 #ifdef _WIN32
@@ -1079,7 +1078,6 @@ int main(int argc, char** argv) {
     enum class ToastOutcome { Processing, Success, Empty, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
-    auto Log = [&](const std::string& message) { appLog += message + "\\n"; };
     bool preferFastPath = true;
     std::future<SiftResult> request;
     std::future<std::string> healthRequest;
@@ -1326,7 +1324,6 @@ int main(int argc, char** argv) {
             }
             catch (const std::exception& e) { output = e.what(); status = "Request failed."; }
             stats.seconds = lastResponseSeconds;
-            notifyDone = true;
             busy = false;
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -1516,7 +1513,6 @@ int main(int argc, char** argv) {
                     std::chrono::steady_clock::now() - requestStarted).count();
                 stats.seconds = lastResponseSeconds;
                 status = "Done - deterministic fast path.";
-                notifyDone = true;
             } else {
                 status = "Sending to model...";
                 busy = true;
@@ -1660,9 +1656,6 @@ int main(int argc, char** argv) {
             ImGui::EndTabBar();
         }
         ImGui::End();
-
-        // Completion notifications are reserved for clipboard-watch mode.
-        notifyDone = false;
 
         if (showAppLog) {
             ImGui::SetNextWindowSize({760, 300}, ImGuiCond_FirstUseEver);
@@ -1833,7 +1826,6 @@ int main(int argc, char** argv) {
         // longer without affecting clipboard-event handling perceptibly.
         const bool asyncActive = busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool mainVisible = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
-        const bool needsAnimation = toastActive || asyncActive;
         // Toast animation can run above the main UI rate without affecting tray-idle CPU.
         // Hidden true-idle is blocked above and never reaches this delay.
         if (toastActive) {
