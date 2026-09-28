@@ -1630,7 +1630,7 @@ int main(int argc, char** argv) {
                         toastText = "Offline fallback";
                         toastProcessing = false;
                         toastOutcome = ToastOutcome::Fallback;
-                        toastSoundPlayed = false;
+                        toastSoundPlayed = cfg.toastSound;
                         toastShownAt = std::chrono::steady_clock::now();
                         toastUntil = toastShownAt + std::chrono::milliseconds(
                             static_cast<int>(cfg.toastSeconds * 1000.0f));
