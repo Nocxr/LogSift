@@ -4141,7 +4141,8 @@ int main(int argc, char** argv) {
                     const bool sizingScanLayout =
                         toastProcessing ||
                         toastOutcome == ToastOutcome::Cancelled ||
-                        toastOutcome == ToastOutcome::Empty;
+                        toastOutcome == ToastOutcome::Empty ||
+                        sizingAcknowledgement;
                     const auto ocrPopupRows = [&]() {
                         if (!stats.ocr.present) return 0;
                         int rows = 1; // image input
@@ -4159,9 +4160,10 @@ int main(int argc, char** argv) {
                             contentHeight += sizingChunking ? 54 : 34;
 
                         const bool hasScanStats =
-                            cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
-                            cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
-                            cfg.scanShowBytesReduction || cfg.scanShowElapsedTime;
+                            !sizingAcknowledgement &&
+                            (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
+                             cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
+                             cfg.scanShowBytesReduction || cfg.scanShowElapsedTime);
                         if (hasScanStats) {
                             contentHeight += 28; // Stats disclosure row
                             if (toastStatsExpanded) {
@@ -4179,9 +4181,6 @@ int main(int argc, char** argv) {
                             if (toastOcrStatsExpanded)
                                 contentHeight += ocrPopupRows() * 22;
                         }
-                    } else if (sizingAcknowledgement) {
-                        contentHeight += 26; // acknowledgement message
-                        if (cfg.resultShowLifetimeBar) contentHeight += 14;
                     } else {
                         if (cfg.resultShowDiagnosticTotal) contentHeight += 22;
                         if (cfg.resultShowFallbackNotice &&
@@ -4358,7 +4357,8 @@ int main(int argc, char** argv) {
                 const bool scanLayout =
                     toastProcessing ||
                     toastOutcome == ToastOutcome::Cancelled ||
-                    toastOutcome == ToastOutcome::Empty;
+                    toastOutcome == ToastOutcome::Empty ||
+                    acknowledgementToast;
                 if (scanLayout) {
                     const double elapsed = toastProcessing
                         ? std::chrono::duration<double>(
@@ -4373,6 +4373,11 @@ int main(int argc, char** argv) {
                             ImGui::PopStyleColor();
                         } else if (toastOutcome == ToastOutcome::Empty) {
                             ImGui::TextColored(outcomeColor, "No actionable diagnostics found");
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                            ImGui::ProgressBar(1.0f, {-1, 5}, "");
+                            ImGui::PopStyleColor();
+                        } else if (acknowledgementToast) {
+                            ImGui::TextColored(outcomeColor, "Clipboard change detected");
                             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
                             ImGui::ProgressBar(1.0f, {-1, 5}, "");
                             ImGui::PopStyleColor();
@@ -4397,9 +4402,10 @@ int main(int argc, char** argv) {
                         }
                     }
 
-                    if (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
-                        cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
-                        cfg.scanShowBytesReduction || cfg.scanShowElapsedTime) {
+                    if (!acknowledgementToast &&
+                        (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
+                         cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
+                         cfg.scanShowBytesReduction || cfg.scanShowElapsedTime)) {
                         ToastDisclosureRow("scan_stats", "Stats", toastStatsExpanded, outcomeColor);
                         if (toastStatsExpanded && ImGui::BeginTable("##scan_popup_stats", 2,
                             ImGuiTableFlags_SizingStretchProp)) {
@@ -4518,8 +4524,6 @@ int main(int argc, char** argv) {
                             ImGui::EndTable();
                         }
                     }
-                } else if (acknowledgementToast) {
-                    ImGui::TextDisabled("Clipboard change acknowledged.");
                 } else {
                     if (cfg.resultShowDiagnosticTotal)
                         ImGui::TextColored(outcomeColor, "%zu diagnostic%s",
@@ -4767,12 +4771,14 @@ int main(int argc, char** argv) {
 
                 if (toastProcessing ||
                     toastOutcome == ToastOutcome::Cancelled ||
-                    toastOutcome == ToastOutcome::Empty) {
+                    toastOutcome == ToastOutcome::Empty ||
+                    acknowledgementToast) {
                     ImGui::Separator();
                     ImGui::Spacing();
                     const bool finishedScanLayout =
                         toastOutcome == ToastOutcome::Cancelled ||
-                        toastOutcome == ToastOutcome::Empty;
+                        toastOutcome == ToastOutcome::Empty ||
+                        acknowledgementToast;
                     const float secondW = finishedScanLayout ? dismissW : cancelW;
                     const float totalW = openW + secondW + gap;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
@@ -4787,12 +4793,6 @@ int main(int argc, char** argv) {
                         if (ImGui::Button("Cancel", {cancelW, buttonH}))
                             cancelActiveSift("notification");
                     }
-                } else if (acknowledgementToast) {
-                    ImGui::Separator();
-                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
-                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - dismissW));
-                    if (ImGui::Button("Dismiss", {dismissW, buttonH}))
-                        toastText.clear();
                 } else {
                     const float totalW = openW + copyW + dismissW + gap * 2.0f;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
