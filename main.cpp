@@ -2376,7 +2376,41 @@ int main(int argc, char** argv) {
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::Text("Model: %s", health.c_str());
+        const char* connectionLabel = "Ready";
+        ImVec4 connectionColor(0.30f, 0.90f, 0.48f, 1.0f);
+        switch (connectionStage) {
+            case ConnectionStage::Checking:
+                connectionLabel = "Checking model...";
+                connectionColor = ImVec4(0.95f, 0.78f, 0.28f, 1.0f);
+                break;
+            case ConnectionStage::LoadingModels:
+                connectionLabel = "Loading models...";
+                connectionColor = ImVec4(0.30f, 0.72f, 1.00f, 1.0f);
+                break;
+            case ConnectionStage::Benchmarking:
+                connectionLabel = "Benchmarking...";
+                connectionColor = ImVec4(0.72f, 0.48f, 1.00f, 1.0f);
+                break;
+            case ConnectionStage::Ready:
+                connectionLabel = "Ready";
+                connectionColor = ImVec4(0.30f, 0.90f, 0.48f, 1.0f);
+                break;
+            case ConnectionStage::Unreachable:
+                connectionLabel = "UNREACHABLE";
+                connectionColor = ImVec4(1.00f, 0.30f, 0.28f, 1.0f);
+                break;
+            case ConnectionStage::ModelsFailed:
+                connectionLabel = "Online / model list unavailable";
+                connectionColor = ImVec4(0.95f, 0.62f, 0.22f, 1.0f);
+                break;
+            case ConnectionStage::BenchmarkFailed:
+                connectionLabel = "Online / benchmark failed";
+                connectionColor = ImVec4(0.95f, 0.62f, 0.22f, 1.0f);
+                break;
+        }
+        ImGui::TextColored(connectionColor, "%s", connectionLabel);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s)", health.c_str());
         ImGui::SameLine();
         if (lastResponseSeconds > 0.0) ImGui::Text("| Last: %.3f s", lastResponseSeconds);
         ImGui::SameLine();
@@ -2853,7 +2887,7 @@ int main(int argc, char** argv) {
                     : toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
                     toastOutcome == ToastOutcome::OfflineFallback ? "LOG SIFT - OFFLINE FALLBACK" :
-                    toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL FALLBACK" :
+                    toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL RESPONSE FALLBACK" :
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
                 ImGui::SameLine();
@@ -2888,8 +2922,8 @@ int main(int argc, char** argv) {
                         ImGui::TextWrapped("Showing conservative local results; more candidates may be included.");
                     } else if (toastOutcome == ToastOutcome::ModelFallback) {
                         ImGui::Separator();
-                        ImGui::TextColored(outcomeColor, "MODEL ONLINE - RESPONSE UNUSABLE");
-                        ImGui::TextWrapped("The endpoint responded, but Log Sift used the conservative local filter instead.");
+                        ImGui::TextColored(outcomeColor, "MODEL ONLINE - LOCAL FILTER USED");
+                        ImGui::TextWrapped("Connectivity is OK. The model response was not usable enough, so Log Sift kept conservative local diagnostics.");
                     }
                 }
                 std::string statLine;
@@ -2958,8 +2992,7 @@ int main(int argc, char** argv) {
                 ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
                     ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
                 if (ImGui::Button("Open", {openW, buttonH})) {
-                    SDL_ShowWindow(window);
-                    SDL_RaiseWindow(window);
+                    reopenMainWindow();
                     toastText.clear();
                 }
                 ImGui::SameLine(0.0f, gap);
