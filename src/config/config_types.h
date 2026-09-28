@@ -1,5 +1,5 @@
 // Persistent application configuration data.
-// Included by main.cpp; keep this module focused on this responsibility.
+// Shared by the application and compiled processing helpers.
 
 struct Config {
     std::string endpoint = "http://127.0.0.1:1234/v1/chat/completions";

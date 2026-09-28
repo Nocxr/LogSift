@@ -4,6 +4,8 @@
 #include <imgui_impl_sdlrenderer3.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <nlohmann/json.hpp>
+#include "src/config/config_types.h"
+#include "src/core/process.h"
 
 #include <array>
 #include <chrono>
@@ -63,7 +65,6 @@ using json = nlohmann::json;
 
 #include "src/platform/windows.inl"
 #include "src/platform/clipboard.inl"
-#include "src/config/config_types.inl"
 #include "src/ui/style.inl"
 #include "src/core/activity.inl"
 #include "src/config/config_store.inl"
@@ -71,7 +72,6 @@ using json = nlohmann::json;
 #include "src/audio/notifications.inl"
 #include "src/core/stats_history.inl"
 #include "src/core/sift_types.inl"
-#include "src/core/process.inl"
 #include "src/profiles/profiles.inl"
 #include "src/model/client.inl"
 #include "src/model/fast_path.inl"

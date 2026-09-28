@@ -1,5 +1,13 @@
-// Shell/process helpers, formatting, diagnostic deduplication.
-// Included by main.cpp; keep this module focused on this responsibility.
+#include "process.h"
+#include "../config/config_types.h"
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdio>
+#include <sstream>
+#include <stdexcept>
+#include <unordered_set>
 
 std::string ShellQuote(const std::string& s) {
 #ifdef _WIN32

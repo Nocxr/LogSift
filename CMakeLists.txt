@@ -61,7 +61,8 @@ target_link_libraries(logsift_imgui PUBLIC SDL3::SDL3)
 set(LOGSIFT_SOURCE_FRAGMENTS
     src/platform/windows.inl
     src/platform/clipboard.inl
-    src/config/config_types.inl
+    src/config/config_types.h
+    src/core/process.h
     src/ui/style.inl
     src/core/activity.inl
     src/config/config_store.inl
@@ -69,7 +70,6 @@ set(LOGSIFT_SOURCE_FRAGMENTS
     src/audio/notifications.inl
     src/core/stats_history.inl
     src/core/sift_types.inl
-    src/core/process.inl
     src/profiles/profiles.inl
     src/model/client.inl
     src/model/fast_path.inl
@@ -97,6 +97,7 @@ set_source_files_properties(${LOGSIFT_SOURCE_FRAGMENTS} PROPERTIES HEADER_FILE_O
 
 add_executable(logsift
     main.cpp
+    src/core/process.cpp
     ${LOGSIFT_SOURCE_FRAGMENTS})
 target_compile_definitions(logsift PRIVATE
     LOGSIFT_VERSION="${PROJECT_VERSION}")
