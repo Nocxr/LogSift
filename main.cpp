@@ -37,12 +37,14 @@
 extern "C" void LogSiftMacTrayInit(void);
 extern "C" bool LogSiftMacTrayTakeOpen(void);
 extern "C" bool LogSiftMacTrayTakeToggleWatch(void);
+extern "C" bool LogSiftMacTrayTakeToggleOcr(void);
 extern "C" bool LogSiftMacTrayTakeToggleAutoCopy(void);
 extern "C" bool LogSiftMacTrayTakeToggleSound(void);
 extern "C" bool LogSiftMacTrayTakeOpenLog(void);
 extern "C" bool LogSiftMacTrayTakeCopy(void);
 extern "C" bool LogSiftMacTrayTakeQuit(void);
 extern "C" void LogSiftMacTraySetWatch(bool enabled);
+extern "C" void LogSiftMacTraySetOcr(bool enabled);
 extern "C" void LogSiftMacTraySetAutoCopy(bool enabled);
 extern "C" void LogSiftMacTraySetSound(bool enabled);
 extern "C" long long LogSiftMacClipboardChangeCount(void);
@@ -65,10 +67,12 @@ bool gTrayRestoreRequested = false;
 bool gTrayExitRequested = false;
 bool gTrayCopyRequested = false;
 bool gTrayWatchToggleRequested = false;
+bool gTrayOcrToggleRequested = false;
 bool gTrayAutoCopyToggleRequested = false;
 bool gTraySoundToggleRequested = false;
 bool gTrayOpenLogRequested = false;
 bool gTrayWatchEnabled = true;
+bool gTrayOcrEnabled = true;
 bool gTrayAutoCopyEnabled = false;
 bool gTraySoundEnabled = true;
 bool gClipboardUpdatePending = false;
@@ -176,6 +180,7 @@ LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             HMENU menu = CreatePopupMenu();
             AppendMenuW(menu, MF_STRING, 1, L"Open");
             AppendMenuW(menu, MF_STRING | (gTrayWatchEnabled ? MF_CHECKED : MF_UNCHECKED), 4, L"Watch Clipboard");
+            AppendMenuW(menu, MF_STRING | (gTrayOcrEnabled ? MF_CHECKED : MF_UNCHECKED), 8, L"OCR");
             AppendMenuW(menu, MF_STRING | (gTrayAutoCopyEnabled ? MF_CHECKED : MF_UNCHECKED), 5, L"Auto Copy");
             AppendMenuW(menu, MF_STRING | (gTraySoundEnabled ? MF_CHECKED : MF_UNCHECKED), 7, L"Sound");
             AppendMenuW(menu, MF_STRING, 6, L"Open Log");
@@ -187,6 +192,7 @@ LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             if (cmd == 1) gTrayRestoreRequested = true;
             if (cmd == 3) gTrayExitRequested = true;
             if (cmd == 4) gTrayWatchToggleRequested = true;
+            if (cmd == 8) gTrayOcrToggleRequested = true;
             if (cmd == 5) gTrayAutoCopyToggleRequested = true;
             if (cmd == 6) gTrayOpenLogRequested = true;
             if (cmd == 7) gTraySoundToggleRequested = true;
@@ -353,6 +359,7 @@ struct Config {
     std::string toastSoundFile;
     bool autoCopyResults = false;
     bool watchClipboard = true;
+    bool ocrEnabled = true;
     bool preferFastPath = true;
     // Legacy shared popup toggles are kept for settings migration.
     bool toastShowType = true;
@@ -535,6 +542,7 @@ json ConfigToJson(const Config& cfg) {
         {"toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard},
         {"auto_copy_results", cfg.autoCopyResults},
         {"watch_clipboard", cfg.watchClipboard},
+        {"ocr_enabled", cfg.ocrEnabled},
         {"prefer_fast_path", cfg.preferFastPath}
     };
 }
@@ -600,6 +608,7 @@ void LoadConfig(Config& cfg) {
         cfg.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard);
         cfg.autoCopyResults = j.value("auto_copy_results", cfg.autoCopyResults);
         cfg.watchClipboard = j.value("watch_clipboard", cfg.watchClipboard);
+        cfg.ocrEnabled = j.value("ocr_enabled", cfg.ocrEnabled);
         cfg.preferFastPath = j.value("prefer_fast_path", cfg.preferFastPath);
 
         auto loadColor = [&](const char* key, float (&dst)[3]) {
@@ -1572,6 +1581,23 @@ std::string ExtractVerbatimModelDiagnostics(
     const std::string& modelInput,
     const std::string& originalInput) {
 
+    auto restoreFullSourceLine = [](const std::string& source, const std::string& selected) {
+        std::istringstream in(source);
+        std::string line;
+        std::string best;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line == selected) return line;
+            if (!selected.empty() && line.find(selected) != std::string::npos) {
+                // Models occasionally return only the beginning of a requested
+                // verbatim line. Prefer the shortest containing source line so
+                // the result is restored instead of displaying a chopped prefix.
+                if (best.empty() || line.size() < best.size()) best = line;
+            }
+        }
+        return best;
+    };
+
     std::istringstream filteredOut(modelText);
     std::ostringstream clean;
     std::string outLine;
@@ -1588,10 +1614,14 @@ std::string ExtractVerbatimModelDiagnostics(
             outLine.find("Warnings:") != std::string::npos ||
             outLine.find("Several") != std::string::npos ||
             outLine.find("Blocks of") != std::string::npos;
-        if (!commentary && !outLine.empty() &&
-            (modelInput.find(outLine) != std::string::npos ||
-             originalInput.find(outLine) != std::string::npos)) {
-            clean << outLine << '\n';
+        if (commentary || outLine.empty()) continue;
+
+        std::string restored = restoreFullSourceLine(modelInput, outLine);
+        if (restored.empty())
+            restored = restoreFullSourceLine(originalInput, outLine);
+
+        if (!restored.empty()) {
+            clean << restored << '\n';
             ++kept;
         }
     }
@@ -2350,11 +2380,13 @@ int main(int argc, char** argv) {
     if (!std::filesystem::exists(SettingsPath())) SaveConfig(cfg);
 #ifdef _WIN32
     gTrayWatchEnabled = cfg.watchClipboard;
+    gTrayOcrEnabled = cfg.ocrEnabled;
     gTrayAutoCopyEnabled = cfg.autoCopyResults;
     gTraySoundEnabled = cfg.toastSound;
     bool startAtLogin = WindowsGetStartAtLogin();
 #elif defined(__APPLE__)
     LogSiftMacTraySetWatch(cfg.watchClipboard);
+    LogSiftMacTraySetOcr(cfg.ocrEnabled);
     LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
     LogSiftMacTraySetSound(cfg.toastSound);
     bool startAtLogin = LogSiftMacGetStartAtLogin();
@@ -2369,6 +2401,7 @@ int main(int argc, char** argv) {
     AppendActivityLog(appLog, "INFO", "Log Sift started.");
     AppendActivityLog(appLog, "CONFIG", "Endpoint: " + cfg.endpoint + " | Model: " + cfg.model);
     AppendActivityLog(appLog, "CONFIG", std::string("Clipboard watch: ") + (cfg.watchClipboard ? "on" : "off"));
+    AppendActivityLog(appLog, "CONFIG", std::string("OCR: ") + (cfg.ocrEnabled ? "on" : "off"));
     bool showAppLog = false;
     std::string lastClipboardText;
 #ifdef _WIN32
@@ -2511,6 +2544,14 @@ int main(int argc, char** argv) {
             lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "WATCH", status);
         }
+        if (LogSiftMacTrayTakeToggleOcr()) {
+            cfg.ocrEnabled = !cfg.ocrEnabled;
+            LogSiftMacTraySetOcr(cfg.ocrEnabled);
+            status = cfg.ocrEnabled ? "OCR enabled." : "OCR disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
+            AppendActivityLog(appLog, "OCR", status);
+        }
         if (LogSiftMacTrayTakeToggleAutoCopy()) {
             cfg.autoCopyResults = !cfg.autoCopyResults;
             LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
@@ -2561,6 +2602,15 @@ int main(int argc, char** argv) {
             lastSavedConfig = ConfigToJson(cfg).dump();
             AppendActivityLog(appLog, "WATCH", status);
         }
+        if (gTrayOcrToggleRequested) {
+            gTrayOcrToggleRequested = false;
+            cfg.ocrEnabled = !cfg.ocrEnabled;
+            gTrayOcrEnabled = cfg.ocrEnabled;
+            status = cfg.ocrEnabled ? "OCR enabled." : "OCR disabled.";
+            SaveConfig(cfg);
+            lastSavedConfig = ConfigToJson(cfg).dump();
+            AppendActivityLog(appLog, "OCR", status);
+        }
         if (gTrayAutoCopyToggleRequested) {
             gTrayAutoCopyToggleRequested = false;
             cfg.autoCopyResults = !cfg.autoCopyResults;
@@ -2608,7 +2658,7 @@ int main(int argc, char** argv) {
             !toastText.empty() || toastProcessing || toastTimerPaused || toastWindowVisible;
         if (hiddenNow && !asyncNow && !toastNow && !gClipboardUpdatePending &&
             !gTrayRestoreRequested && !gTrayWatchToggleRequested &&
-            !gTrayAutoCopyToggleRequested && !gTraySoundToggleRequested &&
+            !gTrayOcrToggleRequested && !gTrayAutoCopyToggleRequested && !gTraySoundToggleRequested &&
             !gTrayOpenLogRequested &&
             !gTrayCopyRequested && !gTrayExitRequested) {
             MsgWaitForMultipleObjectsEx(0, nullptr, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
@@ -2696,7 +2746,11 @@ int main(int argc, char** argv) {
                 stats.inputBytes = clipboardImage.bytes.size();
                 stats.route = "Vision OCR";
 
-                if (!visionSupportKnown || !visionSupported) {
+                if (!cfg.ocrEnabled) {
+                    status = "Clipboard image ignored - OCR is disabled.";
+                    stats.route = "OCR disabled";
+                    AppendActivityLog(appLog, "OCR", status);
+                } else if (!visionSupportKnown || !visionSupported) {
                     status = visionSupportKnown
                         ? "Clipboard image ignored - selected model does not support Vision/OCR."
                         : "Clipboard image ignored - Vision/OCR support has not been confirmed.";
