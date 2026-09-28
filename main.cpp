@@ -437,12 +437,19 @@ void ApplyLogSiftStyle() {
     c[ImGuiCol_TextSelectedBg]    = ImVec4(0.10f, 0.38f, 0.56f, 0.60f);
 }
 
-void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
+ImVec2 ToastSourceBadgeSize(const std::string& sourceKind) {
     const char* label = sourceKind.empty() ? "Manual" : sourceKind.c_str();
     const float icon = 18.0f;
     const float badgeHeight = 24.0f;
     const float textWidth = ImGui::CalcTextSize(label).x;
-    const ImVec2 size(icon + 8.0f + textWidth + 12.0f, badgeHeight);
+    return ImVec2(icon + 8.0f + textWidth + 12.0f, badgeHeight);
+}
+
+void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
+    const char* label = sourceKind.empty() ? "Manual" : sourceKind.c_str();
+    const float icon = 18.0f;
+    const float badgeHeight = 24.0f;
+    const ImVec2 size = ToastSourceBadgeSize(sourceKind);
     const ImVec2 p = ImGui::GetCursorScreenPos();
 
     ImGui::InvisibleButton("##toast_source_badge", size);
@@ -4385,7 +4392,7 @@ int main(int argc, char** argv) {
                         // header + two prompt lines + image disclosure + action row.
                         // Do not squeeze it through the generic scan estimate; that
                         // was what allowed the buttons to overlap the bottom edge.
-                        contentHeight = 166;
+                        contentHeight = 178;
                         if (stats.ocr.present) {
                             contentHeight += 28; // Image disclosure row.
                             if (toastOcrStatsExpanded)
@@ -4557,27 +4564,34 @@ int main(int argc, char** argv) {
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 const float titleY = ImGui::GetCursorPosY();
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
-                ImGui::SameLine(0.0f, 9.0f);
-                DrawToastSourceBadge(stats.sourceKind, outcomeColor);
-
-                const float badgeRightX =
+                const float titleRightX =
                     ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
+
                 const float closeSize = 26.0f;
                 const float topButtonGap = 6.0f;
                 const float controlGroupWidth =
                     closeSize * 2.0f + topButtonGap;
-                const float freeSpaceLeft = badgeRightX + 8.0f;
-                const float freeSpaceRight =
+                const float controlsRight =
                     ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
-                const float freeSpaceWidth =
-                    std::max(0.0f, freeSpaceRight - freeSpaceLeft);
                 const float topControlsX =
-                    freeSpaceLeft + std::max(
-                        0.0f,
-                        (freeSpaceWidth - controlGroupWidth) * 0.5f);
+                    controlsRight - controlGroupWidth;
                 const float topRowHeight = std::max(26.0f, ImGui::GetTextLineHeight());
                 const float topControlsY =
                     titleY + (topRowHeight - closeSize) * 0.5f;
+
+                const ImVec2 badgeSize = ToastSourceBadgeSize(stats.sourceKind);
+                const float badgeAreaLeft = titleRightX + 8.0f;
+                const float badgeAreaRight = topControlsX - 8.0f;
+                const float badgeAreaWidth =
+                    std::max(0.0f, badgeAreaRight - badgeAreaLeft);
+                const float badgeX =
+                    badgeAreaLeft + std::max(
+                        0.0f,
+                        (badgeAreaWidth - badgeSize.x) * 0.5f);
+                const float badgeY =
+                    titleY + (topRowHeight - badgeSize.y) * 0.5f;
+                ImGui::SetCursorPos(ImVec2(badgeX, badgeY));
+                DrawToastSourceBadge(stats.sourceKind, outcomeColor);
 
                 ImGui::SetCursorPos(ImVec2(topControlsX, topControlsY));
                 const ImVec4 soundIconColor = cfg.toastSound
@@ -5041,26 +5055,43 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
-                // Actions follow the content directly; no artificial spacer/pinning.
+                // Optional lifetime bar belongs to content, never below the
+                // action row. Every popup therefore ends with the same footer.
+                if (!toastProcessing &&
+                    toastOutcome != ToastOutcome::Cancelled &&
+                    toastOutcome != ToastOutcome::OcrPrompt &&
+                    cfg.resultShowLifetimeBar) {
+                    ImGui::Spacing();
+                    const auto nowToast = std::chrono::steady_clock::now();
+                    const float remaining = toastTimerPaused
+                        ? std::max(0.0f,
+                            std::chrono::duration<float>(toastPausedRemaining).count())
+                        : std::max(0.0f,
+                            std::chrono::duration<float>(toastUntil - nowToast).count());
+                    const float toastLifetimeSeconds = acknowledgementToast
+                        ? 1.8f
+                        : cfg.toastSeconds;
+                    const float fraction = toastLifetimeSeconds > 0.0f
+                        ? std::clamp(remaining / toastLifetimeSeconds, 0.0f, 1.0f)
+                        : 0.0f;
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                    ImGui::ProgressBar(fraction, {-1, 4}, "");
+                    ImGui::PopStyleColor();
+                }
+
+                // Shared footer: separator + action row. Nothing is rendered
+                // beneath this row in any popup state.
                 const float buttonH = 28.0f;
                 const float openW = 82.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 82.0f, gap = 8.0f;
+                ImGui::Separator();
                 ImGui::Spacing();
 
                 if (toastOutcome == ToastOutcome::OcrPrompt) {
-                    ImGui::Separator();
-                    ImGui::Spacing();
                     const float startOcrW = 104.0f;
-                    const float totalW = openW + startOcrW + dismissW + gap * 2.0f;
+                    const float totalW = startOcrW + dismissW + gap;
                     ImGui::SetCursorPosX(std::max(
                         ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
-                    if (ImGui::Button("Open", {openW, buttonH})) {
-                        SDL_ShowWindow(window);
-                        SDL_RaiseWindow(window);
-                        AppendActivityLog(appLog, "UI",
-                            "Main window opened from OCR confirmation.");
-                    }
-                    ImGui::SameLine(0.0f, gap);
                     ImGui::BeginDisabled(!pendingOcrImageReady);
                     if (ImGui::Button("Start OCR", {startOcrW, buttonH}) &&
                         pendingOcrImageReady) {
@@ -5080,25 +5111,35 @@ int main(int argc, char** argv) {
                     toastOutcome == ToastOutcome::Cancelled ||
                     toastOutcome == ToastOutcome::Empty ||
                     acknowledgementToast) {
-                    ImGui::Separator();
-                    ImGui::Spacing();
                     const bool finishedScanLayout =
                         toastOutcome == ToastOutcome::Cancelled ||
                         toastOutcome == ToastOutcome::Empty ||
                         acknowledgementToast;
-                    const float secondW = finishedScanLayout ? dismissW : cancelW;
-                    const float totalW = openW + secondW + gap;
-                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
-                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
-                    if (ImGui::Button("Open", {openW, buttonH}))
-                        reopenMainWindow();
-                    ImGui::SameLine(0.0f, gap);
-                    if (finishedScanLayout) {
-                        if (ImGui::Button("Dismiss", {dismissW, buttonH}))
-                            toastText.clear();
-                    } else {
+                    const bool clipboardOcrInProgress =
+                        toastProcessing && stats.sourceKind == "OCR";
+
+                    if (clipboardOcrInProgress) {
+                        ImGui::SetCursorPosX(std::max(
+                            ImGui::GetStyle().WindowPadding.x,
+                            ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - cancelW));
                         if (ImGui::Button("Cancel", {cancelW, buttonH}))
                             cancelActiveSift("notification");
+                    } else {
+                        const float secondW = finishedScanLayout ? dismissW : cancelW;
+                        const float totalW = openW + secondW + gap;
+                        ImGui::SetCursorPosX(std::max(
+                            ImGui::GetStyle().WindowPadding.x,
+                            ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
+                        if (ImGui::Button("Open", {openW, buttonH}))
+                            reopenMainWindow();
+                        ImGui::SameLine(0.0f, gap);
+                        if (finishedScanLayout) {
+                            if (ImGui::Button("Dismiss", {dismissW, buttonH}))
+                                toastText.clear();
+                        } else {
+                            if (ImGui::Button("Cancel", {cancelW, buttonH}))
+                                cancelActiveSift("notification");
+                        }
                     }
                 } else {
                     const float totalW = openW + copyW + dismissW + gap * 2.0f;
@@ -5123,28 +5164,6 @@ int main(int argc, char** argv) {
                     ImGui::EndDisabled();
                     ImGui::SameLine(0.0f, gap);
                     if (ImGui::Button("Dismiss", {dismissW, buttonH})) toastText.clear();
-                }
-
-                if (!toastProcessing &&
-                    toastOutcome != ToastOutcome::Cancelled &&
-                    toastOutcome != ToastOutcome::OcrPrompt &&
-                    cfg.resultShowLifetimeBar) {
-                    ImGui::Spacing();
-                    const auto nowToast = std::chrono::steady_clock::now();
-                    const float remaining = toastTimerPaused
-                        ? std::max(0.0f,
-                            std::chrono::duration<float>(toastPausedRemaining).count())
-                        : std::max(0.0f,
-                            std::chrono::duration<float>(toastUntil - nowToast).count());
-                    const float toastLifetimeSeconds = acknowledgementToast
-                        ? 1.8f
-                        : cfg.toastSeconds;
-                    const float fraction = toastLifetimeSeconds > 0.0f
-                        ? std::clamp(remaining / toastLifetimeSeconds, 0.0f, 1.0f)
-                        : 0.0f;
-                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
-                    ImGui::ProgressBar(fraction, {-1, 4}, "");
-                    ImGui::PopStyleColor();
                 }
 
                 ImGui::End();
