@@ -3335,6 +3335,9 @@ int main(int argc, char** argv) {
                     status = droppedStatus;
                     AppendActivityLog(appLog, "FILE", status);
                     beginOcrScan(std::move(droppedImage), "File", "Dropped image");
+                } else if (!droppedStatus.empty()) {
+                    status = droppedStatus;
+                    AppendActivityLog(appLog, "FILE", status);
                 } else if (LoadFile(event.drop.data, input, status)) {
                     AppendActivityLog(appLog, "FILE", status);
                     output.clear();
@@ -3358,7 +3361,8 @@ int main(int argc, char** argv) {
                     const SiftResult result = request.get();
 
                     if (result.sourceWasImage) {
-                        inputSourceKind = "OCR";
+                        if (inputSourceKind != "File")
+                            inputSourceKind = "OCR";
                         input = result.sourceText;
                         stats.sourceKind = inputSourceKind;
                         stats.logType = "Image / OCR";
@@ -3425,7 +3429,7 @@ int main(int argc, char** argv) {
                     if (autoCopied)
                         AppendActivityLog(appLog, "AUTO-COPY", "Actionable sift result auto-copied.");
 
-                    if (cfg.watchClipboard) {
+                    if (cfg.watchClipboard || result.sourceWasImage) {
                         toastText = result.visionFailure
                             ? "OCR failed"
                             : result.usedLocalFallback ? "Model fallback" : "Complete";
@@ -3794,6 +3798,25 @@ int main(int argc, char** argv) {
         }
         ImGui::SameLine();
         ImGui::TextDisabled("Automatically sifts copied text that looks like a log, including unknown formats.");
+
+        if (ImGui::Checkbox("OCR images", &cfg.ocrEnabled)) {
+#ifdef _WIN32
+            gTrayOcrEnabled = cfg.ocrEnabled;
+#elif defined(__APPLE__)
+            LogSiftMacTraySetOcr(cfg.ocrEnabled);
+#endif
+            status = cfg.ocrEnabled ? "OCR enabled." : "OCR disabled.";
+            AppendActivityLog(appLog, "OCR", status);
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!cfg.ocrEnabled);
+        ImGui::Checkbox("Auto-scan images", &cfg.autoScanImages);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled(cfg.autoScanImages
+            ? "Clipboard images start OCR immediately."
+            : "Clipboard images ask before OCR starts.");
+
         ImGui::Checkbox("Fast path structured compiler logs", &cfg.preferFastPath);
         ImGui::SameLine();
         ImGui::TextDisabled("Skips the model when deterministic extraction is sufficient.");
@@ -4258,7 +4281,8 @@ int main(int argc, char** argv) {
         }
         }
 
-        if (!toastProcessing && !toastText.empty() && cfg.toastSound && !toastSoundPlayed) {
+        if (!toastProcessing && toastOutcome != ToastOutcome::OcrPrompt &&
+            !toastText.empty() && cfg.toastSound && !toastSoundPlayed) {
             toastSoundPlayed = true;
             if (toastOutcome == ToastOutcome::OfflineFallback) {
                 PlaySynthPreset(cfg.offlineSoundPreset, false);
@@ -4335,11 +4359,14 @@ int main(int argc, char** argv) {
                         toastProcessing && activeProgress && activeProgress->chunking.load();
                     const bool sizingAcknowledgement =
                         !toastProcessing && toastOutcome == ToastOutcome::Processing;
+                    const bool sizingOcrPrompt =
+                        !toastProcessing && toastOutcome == ToastOutcome::OcrPrompt;
                     const bool sizingScanLayout =
                         toastProcessing ||
                         toastOutcome == ToastOutcome::Cancelled ||
                         toastOutcome == ToastOutcome::Empty ||
-                        sizingAcknowledgement;
+                        sizingAcknowledgement ||
+                        sizingOcrPrompt;
                     const auto ocrPopupRows = [&]() {
                         if (!stats.ocr.present) return 0;
                         int rows = 1; // image input
@@ -4357,7 +4384,7 @@ int main(int argc, char** argv) {
                             contentHeight += sizingChunking ? 54 : 34;
 
                         const bool hasScanStats =
-                            !sizingAcknowledgement &&
+                            !sizingAcknowledgement && !sizingOcrPrompt &&
                             (cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
                              cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
                              cfg.scanShowBytesReduction || cfg.scanShowElapsedTime);
@@ -4434,11 +4461,17 @@ int main(int argc, char** argv) {
                                     sizingPreviewEntries.size(),
                                     static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10))));
                                 int previewVisualLines = 0;
-                                for (int i = 0; i < previewRows; ++i)
-                                    previewVisualLines += 1 + static_cast<int>(
-                                        std::count(sizingPreviewEntries[i].begin(),
-                                                   sizingPreviewEntries[i].end(), '\n'));
-                                contentHeight += std::max(38, previewVisualLines * 20 + previewRows * 5 + 12);
+                                for (int i = 0; i < previewRows; ++i) {
+                                    const auto& previewEntry = sizingPreviewEntries[i];
+                                    const int hardLines = 1 + static_cast<int>(
+                                        std::count(previewEntry.begin(), previewEntry.end(), '\n'));
+                                    const int wrappedLines = std::max(
+                                        hardLines,
+                                        static_cast<int>((previewEntry.size() + 55) / 56));
+                                    previewVisualLines += wrappedLines;
+                                }
+                                contentHeight += std::max(
+                                    48, previewVisualLines * 18 + previewRows * 8 + 10);
                                 if (sizingPreviewEntries.size() > static_cast<size_t>(previewRows))
                                     contentHeight += 20;
                             }
@@ -4475,6 +4508,7 @@ int main(int argc, char** argv) {
                 ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
                 ImVec4 outcomeColor(cfg.toastAccent[0], cfg.toastAccent[1], cfg.toastAccent[2], 1.0f);
                 if (toastOutcome == ToastOutcome::Success) outcomeColor = ImVec4(0.22f, 0.78f, 0.40f, 1.0f);
+                else if (toastOutcome == ToastOutcome::OcrPrompt) outcomeColor = ImVec4(0.28f, 0.82f, 1.00f, 1.0f);
                 else if (toastOutcome == ToastOutcome::Empty) outcomeColor = ImVec4(0.88f, 0.68f, 0.20f, 1.0f);
                 else if (toastOutcome == ToastOutcome::OfflineFallback) outcomeColor = ImVec4(0.20f, 0.82f, 1.00f, 1.0f);
                 else if (toastOutcome == ToastOutcome::ModelFallback) outcomeColor = ImVec4(0.78f, 0.48f, 1.00f, 1.0f);
@@ -4502,6 +4536,7 @@ int main(int argc, char** argv) {
                 const char* outcomeLabel = toastProcessing
                     ? (chunkingNow ? "LOG SIFT - CHUNKING LARGE LOG" : "LOG SIFT - SCANNING")
                     : acknowledgementToast ? "LOG SIFT - CLIPBOARD DETECTED" :
+                    toastOutcome == ToastOutcome::OcrPrompt ? "LOG SIFT - IMAGE DETECTED" :
                     toastOutcome == ToastOutcome::Success ? "LOG SIFT - COMPLETE" :
                     toastOutcome == ToastOutcome::Empty ? "LOG SIFT - NOTHING FOUND" :
                     toastOutcome == ToastOutcome::OfflineFallback ? "LOG SIFT - OFFLINE FALLBACK" :
@@ -4513,12 +4548,14 @@ int main(int argc, char** argv) {
                 ImGui::SameLine(0.0f, 9.0f);
                 DrawToastSourceBadge(stats.sourceKind, outcomeColor);
 
-                const float closeSize = 22.0f;
-                const float topButtonGap = 4.0f;
+                const float closeSize = 26.0f;
+                const float topButtonGap = 5.0f;
+                const float topControlsY =
+                    std::max(0.0f, titleY - 2.0f);
                 ImGui::SetCursorPos(ImVec2(
                     ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x -
                         closeSize * 2.0f - topButtonGap,
-                    std::max(0.0f, titleY - 3.0f)));
+                    topControlsY));
                 const ImVec4 soundIconColor = cfg.toastSound
                     ? outcomeColor
                     : ImVec4(0.58f, 0.60f, 0.64f, 1.0f);
@@ -4541,24 +4578,27 @@ int main(int argc, char** argv) {
 
                 ImGui::SetCursorPos(ImVec2(
                     ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - closeSize,
-                    std::max(0.0f, titleY - 3.0f)));
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f,0.12f,0.12f,0.85f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f,0.12f,0.12f,1.0f));
-                if (ImGui::Button("X##toast_close", ImVec2(closeSize, closeSize))) {
+                    topControlsY));
+                if (ToastCloseIconButton(ImVec4(0.88f, 0.90f, 0.93f, 1.0f), closeSize)) {
                     AppendActivityLog(appLog, "UI",
                         toastProcessing
                             ? "Scanning notification hidden; sift continues."
                             : "Notification closed.");
+                    if (toastOutcome == ToastOutcome::OcrPrompt) {
+                        pendingOcrImage = {};
+                        pendingOcrImageReady = false;
+                    }
                     toastText.clear();
                 }
-                ImGui::PopStyleColor(3);
-                ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), titleY + ImGui::GetTextLineHeightWithSpacing()));
+                ImGui::SetCursorPosY(std::max(
+                    ImGui::GetCursorPosY(),
+                    titleY + closeSize));
 
                 const bool scanLayout =
                     toastProcessing ||
                     toastOutcome == ToastOutcome::Cancelled ||
                     toastOutcome == ToastOutcome::Empty ||
+                    toastOutcome == ToastOutcome::OcrPrompt ||
                     acknowledgementToast;
                 if (scanLayout) {
                     const double elapsed = toastProcessing
@@ -4572,6 +4612,9 @@ int main(int argc, char** argv) {
                             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
                             ImGui::ProgressBar(1.0f, {-1, 5}, "");
                             ImGui::PopStyleColor();
+                        } else if (toastOutcome == ToastOutcome::OcrPrompt) {
+                            ImGui::TextColored(outcomeColor, "Image ready for OCR");
+                            ImGui::TextDisabled("Start OCR when you want to send this image to the model.");
                         } else if (toastOutcome == ToastOutcome::Empty) {
                             ImGui::TextColored(outcomeColor, "No actionable diagnostics found");
                             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
@@ -4938,21 +4981,26 @@ int main(int argc, char** argv) {
                             previewEntries.size(),
                             static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10)));
                         if (toastPreviewExpanded) {
-                            std::ostringstream previewText;
                             int previewVisualLines = 0;
                             for (size_t i = 0; i < previewCount; ++i) {
-                                previewText << previewEntries[i] << '\n';
-                                previewVisualLines += 1 + static_cast<int>(
-                                    std::count(previewEntries[i].begin(),
-                                               previewEntries[i].end(), '\n'));
+                                const auto& previewEntry = previewEntries[i];
+                                const int hardLines = 1 + static_cast<int>(
+                                    std::count(previewEntry.begin(), previewEntry.end(), '\n'));
+                                const int wrappedLines = std::max(
+                                    hardLines,
+                                    static_cast<int>((previewEntry.size() + 55) / 56));
+                                previewVisualLines += wrappedLines;
                             }
 
                             const float previewHeight = static_cast<float>(
-                                std::max(38, previewVisualLines * 20 +
-                                    static_cast<int>(previewCount) * 5 + 12));
-                            DrawDiagnosticEntries(
+                                std::max(
+                                    48,
+                                    previewVisualLines * 18 +
+                                        static_cast<int>(previewCount) * 8 + 10));
+                            DrawToastPreviewEntries(
                                 "##toast_preview_entries",
-                                previewText.str(),
+                                previewEntries,
+                                previewCount,
                                 previewHeight,
                                 status,
                                 lastClipboardText,
@@ -4970,7 +5018,33 @@ int main(int argc, char** argv) {
                 const float openW = 82.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 82.0f, gap = 8.0f;
                 ImGui::Spacing();
 
-                if (toastProcessing ||
+                if (toastOutcome == ToastOutcome::OcrPrompt) {
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    const float startOcrW = 104.0f;
+                    const float totalW = openW + startOcrW + dismissW + gap * 2.0f;
+                    ImGui::SetCursorPosX(std::max(
+                        ImGui::GetStyle().WindowPadding.x,
+                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
+                    if (ImGui::Button("Open", {openW, buttonH}))
+                        reopenMainWindow();
+                    ImGui::SameLine(0.0f, gap);
+                    ImGui::BeginDisabled(!pendingOcrImageReady);
+                    if (ImGui::Button("Start OCR", {startOcrW, buttonH}) &&
+                        pendingOcrImageReady) {
+                        ClipboardImage image = std::move(pendingOcrImage);
+                        pendingOcrImage = {};
+                        pendingOcrImageReady = false;
+                        beginOcrScan(std::move(image), "OCR", "Clipboard image");
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::SameLine(0.0f, gap);
+                    if (ImGui::Button("Dismiss", {dismissW, buttonH})) {
+                        pendingOcrImage = {};
+                        pendingOcrImageReady = false;
+                        toastText.clear();
+                    }
+                } else if (toastProcessing ||
                     toastOutcome == ToastOutcome::Cancelled ||
                     toastOutcome == ToastOutcome::Empty ||
                     acknowledgementToast) {
@@ -5019,7 +5093,9 @@ int main(int argc, char** argv) {
                     if (ImGui::Button("Dismiss", {dismissW, buttonH})) toastText.clear();
                 }
 
-                if (!toastProcessing && toastOutcome != ToastOutcome::Cancelled &&
+                if (!toastProcessing &&
+                    toastOutcome != ToastOutcome::Cancelled &&
+                    toastOutcome != ToastOutcome::OcrPrompt &&
                     cfg.resultShowLifetimeBar) {
                     ImGui::Spacing();
                     const auto nowToast = std::chrono::steady_clock::now();
