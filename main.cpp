@@ -1502,6 +1502,13 @@ int main(int argc, char** argv) {
     SDL_Window* window = SDL_CreateWindow("Log Sift", 1100, 760, mainWindowFlags);
     if (!window) return 1;
 #ifdef _WIN32
+    gAppIconSmall = CreateLogSiftHIcon(32);
+    gAppIconBig = CreateLogSiftHIcon(64);
+    if (HWND hwnd = static_cast<HWND>(SDL_GetPointerProperty(
+            SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr))) {
+        if (gAppIconSmall) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(gAppIconSmall));
+        if (gAppIconBig) SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(gAppIconBig));
+    }
     InitTrayIcon();
 #elif defined(__APPLE__)
     LogSiftMacTrayInit();
@@ -2541,6 +2548,8 @@ int main(int argc, char** argv) {
         Shell_NotifyIconW(NIM_DELETE, &gTrayIcon);
         DestroyWindow(gTrayHwnd);
     }
+    if (gAppIconSmall) { DestroyIcon(gAppIconSmall); gAppIconSmall = nullptr; }
+    if (gAppIconBig) { DestroyIcon(gAppIconBig); gAppIconBig = nullptr; }
 #endif
     if (toastContext) {
         ImGui::SetCurrentContext(toastContext);
