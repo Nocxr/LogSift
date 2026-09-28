@@ -44,16 +44,19 @@ extern "C" void LogSiftMacTrayInit(void) {
         NSStatusBarButton* button = gItem.button;
         button.toolTip = @"Log Sift";
 
-        if (@available(macOS 11.0, *)) {
-            NSImage* image = [NSImage imageWithSystemSymbolName:@"line.3.horizontal.decrease.circle"
-                                       accessibilityDescription:@"Log Sift"];
-            if (image) {
-                image.template = YES;
-                button.image = image;
-                button.imagePosition = NSImageOnly;
-            } else {
-                button.title = @"LS";
-            }
+        NSString* trayPath = [[NSBundle mainBundle] pathForResource:@"LogSiftTray" ofType:@"png"];
+        NSImage* image = trayPath ? [[NSImage alloc] initWithContentsOfFile:trayPath] : nil;
+        if (image) {
+            image.template = YES;
+            image.size = NSMakeSize(18.0, 18.0);
+            button.image = image;
+            button.imagePosition = NSImageOnly;
+        } else if (@available(macOS 11.0, *)) {
+            NSImage* fallback = [NSImage imageWithSystemSymbolName:@"line.3.horizontal.decrease.circle"
+                                         accessibilityDescription:@"Log Sift"];
+            fallback.template = YES;
+            button.image = fallback;
+            button.imagePosition = NSImageOnly;
         } else {
             button.title = @"LS";
         }
