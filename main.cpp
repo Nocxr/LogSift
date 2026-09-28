@@ -2006,6 +2006,14 @@ int main(int argc, char** argv) {
     bool toastAutoCopied = false;
     bool toastStatsExpanded = true;
     bool toastPreviewExpanded = true;
+
+    bool toastTimerPaused = false;
+    bool toastMouseWasOver = false;
+    bool toastResumeRequested = false;
+    std::chrono::steady_clock::duration toastPausedRemaining{};
+    std::chrono::steady_clock::time_point toastMouseLeftAt{};
+    std::chrono::steady_clock::time_point toastPauseToastShownAt{};
+
     enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Cancelled, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
@@ -2374,6 +2382,19 @@ int main(int argc, char** argv) {
 
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
+            const SDL_WindowID toastWindowId = toastWindow ? SDL_GetWindowID(toastWindow) : 0;
+            if (!toastProcessing && toastTimerPaused && toastWindowId != 0) {
+                const bool toastLostFocus =
+                    event.type == SDL_EVENT_WINDOW_FOCUS_LOST &&
+                    event.window.windowID == toastWindowId;
+                const bool clickedAnotherAppWindow =
+                    event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                    event.button.windowID != 0 &&
+                    event.button.windowID != toastWindowId;
+                if (toastLostFocus || clickedAnotherAppWindow)
+                    toastResumeRequested = true;
+            }
+
             if (toastContext && toastWindow && event.window.windowID == SDL_GetWindowID(toastWindow)) {
                 ImGui::SetCurrentContext(toastContext);
                 ImGui_ImplSDL3_ProcessEvent(&event);
@@ -3216,9 +3237,56 @@ int main(int argc, char** argv) {
                 PlayEndSound(cfg, toastOutcome == ToastOutcome::Failure);
             }
         }
+        const auto toastTimerNow = std::chrono::steady_clock::now();
+
+        // Every newly-created notification starts with a clean hover-hold state.
+        if (toastShownAt != toastPauseToastShownAt) {
+            toastPauseToastShownAt = toastShownAt;
+            toastTimerPaused = false;
+            toastMouseWasOver = false;
+            toastResumeRequested = false;
+            toastPausedRemaining = {};
+            toastMouseLeftAt = {};
+        }
+
+        if (!toastProcessing && !toastText.empty() && toastWindow) {
+            const bool mouseOverToast =
+                (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_MOUSE_FOCUS) != 0;
+
+            if (mouseOverToast) {
+                if (!toastTimerPaused) {
+                    toastPausedRemaining = std::max(
+                        std::chrono::steady_clock::duration::zero(),
+                        toastUntil - toastTimerNow);
+                    toastTimerPaused = true;
+                }
+                toastMouseLeftAt = {};
+                toastMouseWasOver = true;
+            } else if (toastTimerPaused) {
+                if (toastResumeRequested) {
+                    toastUntil = toastTimerNow + toastPausedRemaining;
+                    toastTimerPaused = false;
+                    toastMouseLeftAt = {};
+                    toastResumeRequested = false;
+                } else {
+                    if (toastMouseWasOver && toastMouseLeftAt.time_since_epoch().count() == 0)
+                        toastMouseLeftAt = toastTimerNow;
+
+                    constexpr auto kToastHoverGrace = std::chrono::seconds(2);
+                    if (toastMouseLeftAt.time_since_epoch().count() != 0 &&
+                        toastTimerNow - toastMouseLeftAt >= kToastHoverGrace) {
+                        toastUntil = toastTimerNow + toastPausedRemaining;
+                        toastTimerPaused = false;
+                        toastMouseLeftAt = {};
+                    }
+                }
+                toastMouseWasOver = false;
+            }
+        }
+
         const bool toastActive =
             !toastText.empty() &&
-            (toastProcessing || std::chrono::steady_clock::now() < toastUntil);
+            (toastProcessing || toastTimerPaused || toastTimerNow < toastUntil);
         if (!toastActive && !toastText.empty()) toastText.clear();
 
         if (toastContext && toastWindow && toastRenderer) {
@@ -3596,8 +3664,14 @@ int main(int argc, char** argv) {
                 }
                 if (!toastProcessing && cfg.resultShowLifetimeBar) {
                     const auto nowToast = std::chrono::steady_clock::now();
-                    const float remaining = std::max(0.0f, std::chrono::duration<float>(toastUntil - nowToast).count());
-                    const float fraction = cfg.toastSeconds > 0.0f ? std::clamp(remaining / cfg.toastSeconds, 0.0f, 1.0f) : 0.0f;
+                    const float remaining = toastTimerPaused
+                        ? std::max(0.0f,
+                            std::chrono::duration<float>(toastPausedRemaining).count())
+                        : std::max(0.0f,
+                            std::chrono::duration<float>(toastUntil - nowToast).count());
+                    const float fraction = cfg.toastSeconds > 0.0f
+                        ? std::clamp(remaining / cfg.toastSeconds, 0.0f, 1.0f)
+                        : 0.0f;
                     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
                     ImGui::ProgressBar(fraction, {-1, 4}, "");
                     ImGui::PopStyleColor();
