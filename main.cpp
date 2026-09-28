@@ -52,7 +52,87 @@ bool gTrayCopyRequested = false;
 bool gTrayWatchToggleRequested = false;
 bool gTrayWatchEnabled = true;
 bool gClipboardUpdatePending = false;
+HICON gAppIconSmall = nullptr;
+HICON gAppIconBig = nullptr;
 
+HICON CreateLogSiftHIcon(int size) {
+    if (size < 16) size = 16;
+
+    BITMAPV5HEADER bi{};
+    bi.bV5Size = sizeof(bi);
+    bi.bV5Width = size;
+    bi.bV5Height = -size;
+    bi.bV5Planes = 1;
+    bi.bV5BitCount = 32;
+    bi.bV5Compression = BI_BITFIELDS;
+    bi.bV5RedMask = 0x00FF0000;
+    bi.bV5GreenMask = 0x0000FF00;
+    bi.bV5BlueMask = 0x000000FF;
+    bi.bV5AlphaMask = 0xFF000000;
+
+    void* raw = nullptr;
+    HDC dc = GetDC(nullptr);
+    HBITMAP color = CreateDIBSection(dc, reinterpret_cast<BITMAPINFO*>(&bi),
+        DIB_RGB_COLORS, &raw, nullptr, 0);
+    ReleaseDC(nullptr, dc);
+    if (!color || !raw) return nullptr;
+
+    auto* pixels = static_cast<unsigned int*>(raw);
+    std::fill(pixels, pixels + size * size, 0u);
+
+    auto rgba = [](unsigned r, unsigned g, unsigned b, unsigned a = 255u) {
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    };
+    auto put = [&](int x, int y, unsigned int c) {
+        if (x >= 0 && y >= 0 && x < size && y < size) pixels[y * size + x] = c;
+    };
+    auto rect = [&](float x0, float y0, float x1, float y1, unsigned int c) {
+        const int ax = static_cast<int>(x0 * size), ay = static_cast<int>(y0 * size);
+        const int bx = static_cast<int>(x1 * size), by = static_cast<int>(y1 * size);
+        for (int y = ay; y < by; ++y) for (int x = ax; x < bx; ++x) put(x, y, c);
+    };
+    auto disc = [&](float cx, float cy, float rr, unsigned int c) {
+        const int r = std::max(1, static_cast<int>(rr * size));
+        const int x0 = static_cast<int>(cx * size), y0 = static_cast<int>(cy * size);
+        for (int y = -r; y <= r; ++y) for (int x = -r; x <= r; ++x)
+            if (x*x + y*y <= r*r) put(x0 + x, y0 + y, c);
+    };
+
+    const unsigned int bg = rgba(9, 22, 31);
+    const unsigned int border = rgba(25, 45, 59);
+    const unsigned int gray = rgba(112, 132, 149);
+    const unsigned int dim = rgba(60, 75, 87);
+    const unsigned int red = rgba(255, 66, 44);
+    const unsigned int green = rgba(24, 225, 102);
+    const unsigned int sieve = rgba(177, 199, 216);
+
+    rect(0.05f, 0.05f, 0.95f, 0.95f, border);
+    rect(0.09f, 0.09f, 0.91f, 0.91f, bg);
+
+    rect(0.16f,0.23f,0.40f,0.27f,gray); rect(0.16f,0.33f,0.34f,0.37f,red);
+    rect(0.16f,0.43f,0.42f,0.47f,gray); rect(0.16f,0.53f,0.31f,0.57f,dim);
+    rect(0.16f,0.63f,0.38f,0.67f,red);  rect(0.16f,0.73f,0.41f,0.77f,gray);
+    rect(0.61f,0.24f,0.82f,0.28f,gray); rect(0.64f,0.36f,0.84f,0.40f,dim);
+    rect(0.67f,0.50f,0.85f,0.55f,green);rect(0.67f,0.62f,0.85f,0.67f,green);
+    rect(0.61f,0.75f,0.84f,0.79f,gray);
+
+    for (int i = 0; i <= 36; ++i) {
+        const float t = i / 36.0f;
+        const float y = 0.18f + 0.64f * t;
+        const float x = 0.49f + 0.075f * std::sin(t * 6.2831853f);
+        disc(x, y, 0.035f, sieve);
+    }
+
+    HBITMAP mask = CreateBitmap(size, size, 1, 1, nullptr);
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmColor = color;
+    ii.hbmMask = mask;
+    HICON icon = CreateIconIndirect(&ii);
+    DeleteObject(mask);
+    DeleteObject(color);
+    return icon;
+}
 
 LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_CLIPBOARDUPDATE) {
@@ -97,7 +177,7 @@ bool InitTrayIcon() {
     gTrayIcon.uID = kTrayId;
     gTrayIcon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     gTrayIcon.uCallbackMessage = kTrayMessage;
-    gTrayIcon.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+    gTrayIcon.hIcon = gAppIconSmall ? gAppIconSmall : LoadIconW(nullptr, IDI_APPLICATION);
     wcscpy_s(gTrayIcon.szTip, L"Log Sift");
     return Shell_NotifyIconW(NIM_ADD, &gTrayIcon) != FALSE;
 }
