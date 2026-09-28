@@ -58,7 +58,46 @@ target_include_directories(logsift_imgui PUBLIC
     ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(logsift_imgui PUBLIC SDL3::SDL3)
 
-add_executable(logsift main.cpp)
+set(LOGSIFT_SOURCE_FRAGMENTS
+    src/platform/windows.inl
+    src/platform/clipboard.inl
+    src/config/config_types.inl
+    src/ui/style.inl
+    src/core/activity.inl
+    src/config/config_store.inl
+    src/core/output_prefs.inl
+    src/audio/notifications.inl
+    src/core/stats_history.inl
+    src/core/sift_types.inl
+    src/core/process.inl
+    src/profiles/profiles.inl
+    src/model/client.inl
+    src/model/fast_path.inl
+    src/model/vision.inl
+    src/io/input.inl
+    src/ui/widgets.inl
+    src/cli/help.inl
+    src/cli/run.inl
+    src/app/setup.inl
+    src/app/events_tray_watch.inl
+    src/app/events_sdl_async.inl
+    src/ui/main_header.inl
+    src/ui/sift_tab.inl
+    src/ui/recents_tab.inl
+    src/ui/settings_tab.inl
+    src/ui/main_render.inl
+    src/ui/toast_lifecycle.inl
+    src/ui/toast_layout.inl
+    src/ui/toast_content.inl
+    src/ui/toast_footer.inl
+    src/app/frame_wait.inl
+    src/app/shutdown.inl
+)
+set_source_files_properties(${LOGSIFT_SOURCE_FRAGMENTS} PROPERTIES HEADER_FILE_ONLY TRUE)
+
+add_executable(logsift
+    main.cpp
+    ${LOGSIFT_SOURCE_FRAGMENTS})
 target_compile_definitions(logsift PRIVATE
     LOGSIFT_VERSION="${PROJECT_VERSION}")
 

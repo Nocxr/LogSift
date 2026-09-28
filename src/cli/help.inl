@@ -1,0 +1,43 @@
+// CLI help text.
+// Included by main.cpp; keep this module focused on this responsibility.
+
+void PrintCliHelp() {
+    std::cout
+        << "Log Sift " << LOGSIFT_VERSION << "\n"
+        << "Reduce noisy build/runtime logs to useful diagnostics.\n\n"
+        << "USAGE\n"
+        << "  logsift                         Launch the desktop app\n"
+        << "  logsift --background            Launch the desktop app hidden in the tray/menu bar\n"
+        << "  logsift --cli [FILE|-] [options]\n"
+        << "  logsift --image IMAGE [options]\n\n"
+        << "INPUT\n"
+        << "  FILE                            Read a log file (same as --file FILE)\n"
+        << "  --file FILE                     Read a log file; use - for stdin\n"
+        << "  --image FILE                    OCR a PNG/JPG/JPEG using the configured vision model\n"
+        << "                                  and then sift the extracted text\n\n"
+        << "PROCESSING\n"
+        << "  --profile ID                    Force a profile (default: auto)\n"
+        << "  --list-profiles                 List installed profile IDs and names\n"
+        << "  --llm                           Refine candidates with the configured model\n"
+        << "                                  (default CLI mode is local/deterministic only)\n"
+        << "  --endpoint URL                  Override the saved model endpoint for this run\n"
+        << "  --model ID                      Override the saved model ID for this run\n"
+        << "  --timestamps                    Keep timestamps in output\n"
+        << "  --known-noise                   Include lines normally classified as known noise\n"
+        << "  --no-group                      Do not group similar diagnostics\n\n"
+        << "OUTPUT\n"
+        << "  --json                          Emit structured JSON instead of plain diagnostics\n\n"
+        << "GENERAL\n"
+        << "  -h, --help                      Show this help\n"
+        << "  --version                       Print the version\n\n"
+        << "EXAMPLES\n"
+        << "  logsift --cli build.log\n"
+        << "  type build.log | logsift --cli -\n"
+        << "  logsift --cli build.log --profile unreal --json\n"
+        << "  logsift --cli build.log --llm\n"
+        << "  logsift --image screenshot.png --json\n\n"
+        << "CLI model/OCR runs use the endpoint, model, and API key saved by the desktop app\n"
+        << "unless --endpoint or --model overrides them.\n\n"
+        << "Exit codes: 0 = diagnostics returned, 1 = no diagnostics, 2 = usage/input error,\n"
+        << "            3 = requested model/OCR processing failed.\n";
+}
