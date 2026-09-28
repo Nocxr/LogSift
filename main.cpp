@@ -694,6 +694,15 @@ void PlayEndSound(const Config& cfg, bool failure=false) {
 }
 
 
+size_t EstimateTokenCount(const std::string& text) {
+    if (text.empty()) return 0;
+    // Fast display estimate for logs/code before the model returns tokenizer usage.
+    // Code/log punctuation is usually a little denser than prose, so ~3.7 bytes/token
+    // is a better approximation here than a prose-oriented 4 bytes/token.
+    return std::max<size_t>(1, static_cast<size_t>(
+        std::ceil(static_cast<double>(text.size()) / 3.7)));
+}
+
 struct RunStats {
     std::string logType = "Unknown";
     std::string route = "Not run";
@@ -704,6 +713,8 @@ struct RunStats {
     size_t filteredLines = 0;
     size_t inputWords = 0;
     size_t filteredWords = 0;
+    size_t estimatedInputTokens = 0;
+    size_t estimatedFilteredTokens = 0;
     double seconds = 0.0;
     double ttftSeconds = 0.0;
     int promptTokens = 0;
@@ -1696,8 +1707,21 @@ std::vector<std::string> DiagnosticEntries(const std::string& text) {
     return entries;
 }
 
+struct CopyFlashState {
+    std::chrono::steady_clock::time_point until{};
+    size_t entryHash = 0;
+    bool all = false;
+};
+
+void StartCopyFlash(CopyFlashState& flash, bool all, size_t entryHash = 0) {
+    flash.until = std::chrono::steady_clock::now() + std::chrono::milliseconds(420);
+    flash.all = all;
+    flash.entryHash = entryHash;
+}
+
 void DrawDiagnosticEntries(const char* id, const std::string& text, float height,
-    std::string& status, std::string& lastClipboardText, std::string& appLog) {
+    std::string& status, std::string& lastClipboardText, std::string& appLog,
+    CopyFlashState& copyFlash) {
     ImGui::BeginChild(id, {-1, height}, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
     const auto entries = DiagnosticEntries(text);
     if (entries.empty()) ImGui::TextDisabled("No entries.");
@@ -1717,10 +1741,31 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
         ImGui::PopTextWrapPos();
         ImGui::EndGroup();
         const ImVec2 bottomRight = ImGui::GetItemRectMax();
+
+        const auto flashNow = std::chrono::steady_clock::now();
+        const size_t entryHash = std::hash<std::string>{}(entry);
+        if (flashNow < copyFlash.until && (copyFlash.all || copyFlash.entryHash == entryHash)) {
+            const float remaining = std::chrono::duration<float>(copyFlash.until - flashNow).count();
+            const float t = std::clamp(remaining / 0.42f, 0.0f, 1.0f);
+            const float pulse = 0.10f + 0.16f * t;
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                ImVec2(topLeft.x - 4.0f, topLeft.y - 2.0f),
+                ImVec2(bottomRight.x + 4.0f, bottomRight.y + 2.0f),
+                ImGui::ColorConvertFloat4ToU32(ImVec4(0.18f, 0.82f, 1.0f, pulse)),
+                4.0f);
+            drawList->AddRect(
+                ImVec2(topLeft.x - 4.0f, topLeft.y - 2.0f),
+                ImVec2(bottomRight.x + 4.0f, bottomRight.y + 2.0f),
+                ImGui::ColorConvertFloat4ToU32(ImVec4(0.30f, 0.92f, 1.0f, 0.35f * t)),
+                4.0f, 0, 1.0f);
+        }
+
         ImGui::SetCursorScreenPos(topLeft);
         ImGui::SetNextItemAllowOverlap();
         if (ImGui::InvisibleButton("##entry_click", {std::max(1.0f, bottomRight.x - topLeft.x), std::max(ImGui::GetTextLineHeightWithSpacing(), bottomRight.y - topLeft.y)})) {
             if (SetOwnedClipboardText(entry, &lastClipboardText)) {
+                StartCopyFlash(copyFlash, false, entryHash);
                 status = "Copied diagnostic entry to clipboard.";
                 AppendActivityLog(appLog, "COPY", "Individual diagnostic copied.");
             }
