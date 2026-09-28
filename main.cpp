@@ -1774,24 +1774,62 @@ std::vector<std::string> DiagnosticEntries(const std::string& text) {
     std::vector<std::string> entries;
     std::istringstream stream(text);
     std::string line, current;
-    auto isStart = [](const std::string& s) {
-        return s.find(": Error:") != std::string::npos || s.find(": Warning:") != std::string::npos ||
-               s.find("Fatal error:") != std::string::npos || s.find("Ensure condition failed") != std::string::npos ||
-               s.find("Assertion failed") != std::string::npos || s.find("Unhandled Exception") != std::string::npos ||
-               s.find("FAILED:") == 0 || s.find("): error ") != std::string::npos ||
-               s.find("): warning ") != std::string::npos || s.find(": error:") != std::string::npos ||
+
+    auto isExplicitStart = [](const std::string& s) {
+        return s.find(": Error:") != std::string::npos ||
+               s.find(": Warning:") != std::string::npos ||
+               s.find("Fatal error:") != std::string::npos ||
+               s.find("Ensure condition failed") != std::string::npos ||
+               s.find("Assertion failed") != std::string::npos ||
+               s.find("Unhandled Exception") != std::string::npos ||
+               s.rfind("FAILED:", 0) == 0 ||
+               s.find("): error ") != std::string::npos ||
+               s.find("): warning ") != std::string::npos ||
+               s.find(": error:") != std::string::npos ||
                s.find(": warning:") != std::string::npos;
     };
+
+    auto isContinuation = [](const std::string& s) {
+        if (s.empty()) return false;
+        if (std::isspace(static_cast<unsigned char>(s.front()))) return true;
+
+        const auto startsWith = [&](const char* prefix) {
+            return s.rfind(prefix, 0) == 0;
+        };
+        return startsWith("note:") ||
+               startsWith("Note:") ||
+               startsWith("help:") ||
+               startsWith("Help:") ||
+               startsWith("^") ||
+               startsWith("~") ||
+               startsWith("In file included from") ||
+               startsWith("from ") ||
+               startsWith("required from") ||
+               startsWith("with [") ||
+               startsWith("at ") ||
+               startsWith("Caused by:");
+    };
+
     while (std::getline(stream, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty()) continue;
-        if (isStart(line) && !current.empty()) {
+
+        // Explicit compiler/runtime starts always begin a new diagnostic. For generic
+        // output, each unindented top-level line is also its own entry; only clearly
+        // subordinate/continuation lines stay attached to the previous entry.
+        const bool newEntry =
+            !current.empty() &&
+            (isExplicitStart(line) || !isContinuation(line));
+
+        if (newEntry) {
             entries.push_back(current);
             current.clear();
         }
+
         if (!current.empty()) current += '\n';
         current += line;
     }
+
     if (!current.empty()) entries.push_back(current);
     return entries;
 }
