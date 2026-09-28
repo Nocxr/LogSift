@@ -191,7 +191,6 @@ struct Config {
     std::string toastSoundFile;
     bool autoCopyResults = false;
     bool watchClipboard = true;
-    bool preferFastPath = true;
     bool toastShowType = true;
     bool toastShowBytes = true;
     bool toastShowTime = true;
@@ -1257,10 +1256,22 @@ int main(int argc, char** argv) {
     }
 
     Config cfg;
+    LoadConfig(cfg);
+    if (!std::filesystem::exists(SettingsPath())) SaveConfig(cfg);
+#ifdef _WIN32
+    gTrayWatchEnabled = cfg.cfg.watchClipboard;
+    bool startAtLogin = WindowsGetStartAtLogin();
+#elif defined(__APPLE__)
+    LogSiftMacTraySetWatch(cfg.cfg.watchClipboard);
+    bool startAtLogin = LogSiftMacGetStartAtLogin();
+#else
+    bool startAtLogin = false;
+#endif
+    std::string lastSavedConfig = ConfigToJson(cfg).dump();
+
     std::string input, output, questionableOutput, prompt = kDefaultPrompt, status = "Paste text or drop a log file.";
     std::string appLog = "Log Sift started.\\n";
     bool showAppLog = false;
-    bool watchClipboard = true;
     std::string lastClipboardText;
 #ifdef _WIN32
     DWORD lastClipboardSequence = 0;
@@ -1272,7 +1283,7 @@ int main(int argc, char** argv) {
     enum class ToastOutcome { Processing, Success, Empty, Fallback, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
-    bool preferFastPath = true;
+    bool cfg.preferFastPath = true;
     std::future<SiftResult> request;
     unsigned long long requestGeneration = 0;
     unsigned long long activeRequestGeneration = 0;
@@ -1305,10 +1316,10 @@ int main(int argc, char** argv) {
             mainDirty = true;
         }
         if (LogSiftMacTrayTakeToggleWatch()) {
-            watchClipboard=!watchClipboard;
-            LogSiftMacTraySetWatch(watchClipboard);
+            cfg.watchClipboard=!cfg.watchClipboard;
+            LogSiftMacTraySetWatch(cfg.watchClipboard);
             lastClipboardText.clear();
-            status=watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            status=cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
             mainDirty = true;
         }
         if (LogSiftMacTrayTakeCopy() && !output.empty()) {
@@ -1332,14 +1343,14 @@ int main(int argc, char** argv) {
         }
         if (gTrayWatchToggleRequested) {
             gTrayWatchToggleRequested = false;
-            watchClipboard = !watchClipboard;
-            gTrayWatchEnabled = watchClipboard;
+            cfg.watchClipboard = !cfg.watchClipboard;
+            gTrayWatchEnabled = cfg.watchClipboard;
 #ifdef _WIN32
             lastClipboardSequence = GetClipboardSequenceNumber();
             gClipboardUpdatePending = false;
 #endif
             lastClipboardText.clear();
-            status = watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
         }
         if (gTrayCopyRequested) {
             gTrayCopyRequested = false;
@@ -1368,10 +1379,10 @@ int main(int argc, char** argv) {
 #endif
         const auto now = std::chrono::steady_clock::now();
 #ifdef _WIN32
-        const bool clipboardTriggered = watchClipboard && !busy && gClipboardUpdatePending;
+        const bool clipboardTriggered = cfg.watchClipboard && !busy && gClipboardUpdatePending;
 #else
         bool clipboardTriggered = false;
-        if (watchClipboard && !busy &&
+        if (cfg.watchClipboard && !busy &&
             now - lastClipboardCheck >= std::chrono::milliseconds(350)) {
             lastClipboardCheck = now;
 #ifdef __APPLE__
@@ -1465,7 +1476,7 @@ int main(int argc, char** argv) {
                     stats.profile = ProfileName(input, cfg);
                     stats.inputBytes = input.size();
                     stats.filteredBytes = previewFiltered.size();
-                    stats.route = (preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
+                    stats.route = (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
                     requestStarted = now;
                     toastText = "Processing";
                     toastProcessing = true;
@@ -1474,7 +1485,7 @@ int main(int argc, char** argv) {
                     toastShownAt = now;
                     toastUntil = now + std::chrono::hours(1);
                     if (cfg.toastSound) PlaySynthPreset(cfg.startSoundPreset, true);
-                    if (preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
+                    if (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
                         output = FastStructuredResult(previewFiltered);
                         stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - requestStarted).count();
                         status = "Clipboard log parsed.";
@@ -1560,7 +1571,7 @@ int main(int argc, char** argv) {
                     if (stats.promptTokens > 0 && stats.seconds > 0.0)
                         stats.estimatedPromptTokensPerSecond = static_cast<double>(stats.promptTokens) / stats.seconds;
                     status = "Done.";
-                    if (watchClipboard) {
+                    if (cfg.watchClipboard) {
                         toastText = "Complete";
                         toastProcessing = false;
                         toastOutcome = output.empty() || output == "NO_DIAGNOSTICS\n" ? ToastOutcome::Empty : ToastOutcome::Success;
@@ -1589,7 +1600,7 @@ int main(int argc, char** argv) {
                     health = "Offline / unavailable";
                     status = std::string("LLM unavailable - local fallback used. ") + e.what();
 
-                    if (watchClipboard) {
+                    if (cfg.watchClipboard) {
                         toastText = "Offline fallback";
                         toastProcessing = false;
                         toastOutcome = ToastOutcome::Fallback;
@@ -1724,21 +1735,21 @@ int main(int argc, char** argv) {
         ImGui::SetNextItemWidth(180);
         if(ImGui::Combo("##profile",&profileIndex,profileItems.data(),(int)profileItems.size())) cfg.profileId=profileIds[profileIndex];
         ImGui::SameLine(); ImGui::TextDisabled("Detected: %s", input.empty() ? "-" : ProfileName(input,cfg).c_str());
-        if (ImGui::Checkbox("Watch clipboard", &watchClipboard)) {
+        if (ImGui::Checkbox("Watch clipboard", &cfg.watchClipboard)) {
 #ifdef _WIN32
-            gTrayWatchEnabled = watchClipboard;
+            gTrayWatchEnabled = cfg.watchClipboard;
 #elif defined(__APPLE__)
-            LogSiftMacTraySetWatch(watchClipboard);
+            LogSiftMacTraySetWatch(cfg.watchClipboard);
 #endif
             lastClipboardText.clear();
 #ifdef _WIN32
             lastClipboardSequence = 0;
 #endif
-            status = watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
+            status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
         }
         ImGui::SameLine();
         ImGui::TextDisabled("Automatically sifts copied text that looks like a log, including unknown formats.");
-        ImGui::Checkbox("Fast path structured compiler logs", &preferFastPath);
+        ImGui::Checkbox("Fast path structured compiler logs", &cfg.preferFastPath);
         ImGui::SameLine();
         ImGui::TextDisabled("Skips the model when deterministic extraction is sufficient.");
 
@@ -1784,7 +1795,7 @@ int main(int argc, char** argv) {
                     stats.profile = ProfileName(input, cfg);
             stats.inputBytes = input.size();
             stats.filteredBytes = previewFiltered.size();
-            stats.route = (preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
+            stats.route = (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
             stats.promptTokens = 0;
             stats.completionTokens = 0;
             stats.promptTokensPerSecond = 0.0;
@@ -1792,7 +1803,7 @@ int main(int argc, char** argv) {
             stats.estimatedPromptTokensPerSecond = 0.0;
             requestStarted = std::chrono::steady_clock::now();
             lastResponseSeconds = 0.0;
-            if (preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
+            if (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) {
                 output = FastStructuredResult(previewFiltered);
                 lastResponseSeconds = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - requestStarted).count();
