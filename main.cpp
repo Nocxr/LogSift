@@ -1836,9 +1836,7 @@ void DrawDiagnosticEntries(const char* id, const std::string& text, float height
         ImGui::PushID(static_cast<int>(i));
         ImGui::BeginGroup();
         const ImVec2 topLeft = ImGui::GetCursorScreenPos();
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + std::max(200.0f, ImGui::GetContentRegionAvail().x - 12.0f));
         ImGui::TextUnformatted(entry.c_str());
-        ImGui::PopTextWrapPos();
         ImGui::EndGroup();
         const ImVec2 bottomRight = ImGui::GetItemRectMax();
 
@@ -2081,6 +2079,10 @@ int main(int argc, char** argv) {
         activeProgress.reset();
 
         stats.route = "Cancelled";
+        stats.seconds = requestStarted.time_since_epoch().count() != 0
+            ? std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - requestStarted).count()
+            : 0.0;
         status = "Sift cancelled.";
         toastProcessing = false;
         toastAutoCopied = false;
@@ -3334,19 +3336,21 @@ int main(int argc, char** argv) {
                     const bool sizingChunking =
                         toastProcessing && activeProgress && activeProgress->chunking.load();
 
-                    int contentHeight = 104; // title + padding + action row
+                    int contentHeight = 78; // title + padding + action row; content adds the rest
                     if (toastProcessing) {
                         if (cfg.scanShowProgress)
                             contentHeight += sizingChunking ? 54 : 34;
 
                         const bool hasScanStats =
-                            cfg.scanShowSource || cfg.scanShowPrefilterCounts ||
-                            cfg.scanShowEstimatedTokens || cfg.scanShowBytesReduction ||
-                            cfg.scanShowElapsedTime;
+                            cfg.scanShowSource || cfg.scanShowModel || cfg.scanShowRoute ||
+                            cfg.scanShowPrefilterCounts || cfg.scanShowEstimatedTokens ||
+                            cfg.scanShowBytesReduction || cfg.scanShowElapsedTime;
                         if (hasScanStats) {
                             contentHeight += 28; // Stats disclosure row
                             if (toastStatsExpanded) {
                                 if (cfg.scanShowSource) contentHeight += 22;
+                                if (cfg.scanShowModel) contentHeight += 22;
+                                if (cfg.scanShowRoute) contentHeight += 22;
                                 if (cfg.scanShowPrefilterCounts) contentHeight += 22;
                                 if (cfg.scanShowEstimatedTokens) contentHeight += 22;
                                 if (cfg.scanShowBytesReduction) contentHeight += 22;
@@ -3361,19 +3365,28 @@ int main(int argc, char** argv) {
                             contentHeight += 58;
 
                         const bool hasResultStats =
-                            cfg.resultShowSource || cfg.resultShowPrefilterCounts ||
-                            cfg.resultShowEstimatedTokens ||
+                            cfg.resultShowSource || cfg.resultShowModel || cfg.resultShowRoute ||
+                            cfg.resultShowPrefilterCounts || cfg.resultShowEstimatedTokens ||
                             (cfg.resultShowRealTokens &&
                                 (stats.promptTokens > 0 || stats.completionTokens > 0)) ||
+                            (cfg.resultShowTokenSpeed &&
+                                (stats.promptTokensPerSecond > 0.0 ||
+                                 stats.completionTokensPerSecond > 0.0)) ||
                             cfg.resultShowBytesReduction || cfg.resultShowTime;
                         if (hasResultStats) {
                             contentHeight += 28; // Stats disclosure row
                             if (toastStatsExpanded) {
                                 if (cfg.resultShowSource) contentHeight += 22;
+                                if (cfg.resultShowModel) contentHeight += 22;
+                                if (cfg.resultShowRoute) contentHeight += 22;
                                 if (cfg.resultShowPrefilterCounts) contentHeight += 22;
                                 if (cfg.resultShowEstimatedTokens) contentHeight += 22;
                                 if (cfg.resultShowRealTokens &&
                                     (stats.promptTokens > 0 || stats.completionTokens > 0))
+                                    contentHeight += 22;
+                                if (cfg.resultShowTokenSpeed &&
+                                    (stats.promptTokensPerSecond > 0.0 ||
+                                     stats.completionTokensPerSecond > 0.0))
                                     contentHeight += 22;
                                 if (cfg.resultShowBytesReduction) contentHeight += 22;
                                 if (cfg.resultShowTime) contentHeight += 22;
@@ -3390,13 +3403,20 @@ int main(int argc, char** argv) {
                                 const int previewRows = static_cast<int>(std::min<size_t>(
                                     sizingPreviewEntries.size(),
                                     static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10))));
-                                contentHeight += previewRows * 23;
+                                int previewVisualLines = 0;
+                                for (int i = 0; i < previewRows; ++i)
+                                    previewVisualLines += 1 + static_cast<int>(
+                                        std::count(sizingPreviewEntries[i].begin(),
+                                                   sizingPreviewEntries[i].end(), '\n'));
+                                contentHeight += std::max(38, previewVisualLines * 20 + previewRows * 5 + 12);
                                 if (sizingPreviewEntries.size() > static_cast<size_t>(previewRows))
                                     contentHeight += 20;
                             }
                         }
 
-                        if (cfg.resultShowLifetimeBar) contentHeight += 14;
+                        if (cfg.resultShowLifetimeBar &&
+                            toastOutcome != ToastOutcome::Cancelled)
+                            contentHeight += 14;
                     }
 
                     const int maxToastHeight = std::max(220, usable.h - 36);
