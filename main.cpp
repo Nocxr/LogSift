@@ -3289,141 +3289,227 @@ int main(int argc, char** argv) {
                     toastOutcome == ToastOutcome::Cancelled ? "LOG SIFT - CANCELLED" :
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
-                ImGui::SameLine();
+
                 if (toastProcessing) {
                     const double elapsed = std::chrono::duration<double>(
                         std::chrono::steady_clock::now() - requestStarted).count();
-                    if (chunkingNow) {
-                        const int done = activeProgress->completed.load();
-                        const int total = std::max(1, activeProgress->total.load());
-                        ImGui::TextColored(outcomeColor, "Large %s log - chunk %d / %d",
-                            stats.logType.c_str(), std::min(done + 1, total), total);
-                        ImGui::TextColored(outcomeColor,
-                            "Chunking is in effect; large logs may take longer.");
-                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
-                        ImGui::ProgressBar(
-                            std::clamp(static_cast<float>(done) / static_cast<float>(total), 0.0f, 1.0f),
-                            {-1, 5}, "");
-                        ImGui::PopStyleColor();
-                    } else {
-                        ImGui::TextColored(outcomeColor, "Sifting %s...", stats.logType.c_str());
-                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
-                        ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), {-1, 5}, "");
-                        ImGui::PopStyleColor();
-                    }
-                    ImGui::TextDisabled(
-                        "Prefilter: %zu -> %zu lines  |  %zu -> %zu words",
-                        stats.inputLines, stats.filteredLines,
-                        stats.inputWords, stats.filteredWords);
-                    ImGui::TextDisabled(
-                        "Tokens: ~%zu -> ~%zu estimated",
-                        stats.estimatedInputTokens, stats.estimatedFilteredTokens);
-                    const double scanReduced = stats.inputBytes > 0
-                        ? 100.0 * (1.0 -
-                            static_cast<double>(stats.filteredBytes) /
-                            static_cast<double>(stats.inputBytes))
-                        : 0.0;
-                    const ImVec4 scanReductionColor = scanReduced >= 75.0
-                        ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
-                        : scanReduced >= 40.0
-                            ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
-                            : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
-                    ImGui::TextDisabled("%zu -> %zu bytes", stats.inputBytes, stats.filteredBytes);
-                    ImGui::SameLine();
-                    ImGui::TextColored(scanReductionColor, "%.1f%% reduced", scanReduced);
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("| %.1f s elapsed", elapsed);
-                } else {
-                    ImGui::Text("%zu diagnostic%s", entries, entries == 1 ? "" : "s");
-                    if (toastOutcome == ToastOutcome::OfflineFallback) {
-                        ImGui::Separator();
-                        ImGui::TextColored(outcomeColor, "MODEL ENDPOINT OFFLINE - LOCAL FILTER ONLY");
-                        ImGui::TextWrapped("Showing conservative local results; more candidates may be included.");
-                    } else if (toastOutcome == ToastOutcome::ModelFallback) {
-                        ImGui::Separator();
-                        ImGui::TextColored(outcomeColor, "MODEL ONLINE - LOCAL FILTER USED");
-                        ImGui::TextWrapped("Connectivity is OK. The model response was not usable enough, so Log Sift kept conservative local diagnostics.");
-                    }
-                }
-                if (!toastProcessing) {
-                    std::string sourceLabel;
-                    if (cfg.toastShowType) {
-                        sourceLabel = stats.logType;
-                        const bool redundantProfile =
-                            (stats.logType == "Unreal" && stats.profile == "Unreal Engine") ||
-                            stats.profile.empty() || stats.profile == stats.logType;
-                        if (!redundantProfile && stats.profile != "Generic")
-                            sourceLabel += " / " + stats.profile;
-                    }
 
-                    if (!sourceLabel.empty())
-                        ImGui::TextDisabled("%s", sourceLabel.c_str());
-
-                    if (cfg.toastShowBytes && stats.inputBytes > 0 &&
-                        (stats.inputLines > 0 || stats.inputWords > 0)) {
-                        ImGui::TextDisabled(
-                            "%zu -> %zu lines  |  %zu -> %zu words",
-                            stats.inputLines, stats.filteredLines,
-                            stats.inputWords, stats.filteredWords);
-                        ImGui::TextDisabled(
-                            "Prefilter tokens: ~%zu -> ~%zu estimated",
-                            stats.estimatedInputTokens, stats.estimatedFilteredTokens);
-                        if (stats.promptTokens > 0 || stats.completionTokens > 0) {
-                            ImGui::TextColored(
-                                ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
-                                "LLM usage: %d prompt + %d output tokens (real)",
-                                stats.promptTokens, stats.completionTokens);
+                    if (cfg.scanShowProgress) {
+                        if (chunkingNow) {
+                            const int done = activeProgress->completed.load();
+                            const int total = std::max(1, activeProgress->total.load());
+                            ImGui::TextColored(outcomeColor, "Chunk %d / %d",
+                                std::min(done + 1, total), total);
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("Large log - chunking may take longer");
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                            ImGui::ProgressBar(
+                                std::clamp(static_cast<float>(done) / static_cast<float>(total), 0.0f, 1.0f),
+                                {-1, 5}, "");
+                            ImGui::PopStyleColor();
+                        } else {
+                            ImGui::TextColored(outcomeColor, "Model sift in progress");
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                            ImGui::ProgressBar(
+                                -1.0f * static_cast<float>(ImGui::GetTime()), {-1, 5}, "");
+                            ImGui::PopStyleColor();
                         }
                     }
 
-                    if (cfg.toastShowBytes && stats.inputBytes > 0) {
-                        const double reduced = 100.0 * (1.0 -
-                            static_cast<double>(stats.filteredBytes) /
-                            static_cast<double>(stats.inputBytes));
-                        const ImVec4 reductionColor = reduced >= 75.0
-                            ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
-                            : reduced >= 40.0
-                                ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
-                                : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+                    if (cfg.scanShowSource || cfg.scanShowPrefilterCounts ||
+                        cfg.scanShowEstimatedTokens || cfg.scanShowBytesReduction ||
+                        cfg.scanShowElapsedTime) {
+                        if (ImGui::BeginTable("##scan_popup_stats", 2,
+                            ImGuiTableFlags_SizingStretchProp)) {
+                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+                            ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
 
-                        ImGui::TextDisabled("%zu -> %zu bytes", stats.inputBytes, stats.filteredBytes);
-                        ImGui::SameLine();
-                        ImGui::TextColored(reductionColor, "%.1f%% reduced", reduced);
+                            if (cfg.scanShowSource) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Source");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::TextUnformatted(stats.logType.c_str());
+                            }
+                            if (cfg.scanShowPrefilterCounts) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Prefilter");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%zu -> %zu lines  |  %zu -> %zu words",
+                                    stats.inputLines, stats.filteredLines,
+                                    stats.inputWords, stats.filteredWords);
+                            }
+                            if (cfg.scanShowEstimatedTokens) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Est. tokens");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("~%zu -> ~%zu",
+                                    stats.estimatedInputTokens, stats.estimatedFilteredTokens);
+                            }
+                            if (cfg.scanShowBytesReduction) {
+                                const double scanReduced = stats.inputBytes > 0
+                                    ? 100.0 * (1.0 -
+                                        static_cast<double>(stats.filteredBytes) /
+                                        static_cast<double>(stats.inputBytes))
+                                    : 0.0;
+                                const ImVec4 scanReductionColor = scanReduced >= 75.0
+                                    ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                                    : scanReduced >= 40.0
+                                        ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                                        : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Data");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%zu -> %zu bytes", stats.inputBytes, stats.filteredBytes);
+                                ImGui::SameLine();
+                                ImGui::TextColored(scanReductionColor, "%.1f%% reduced", scanReduced);
+                            }
+                            if (cfg.scanShowElapsedTime) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Elapsed");
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Text("%.1f s", elapsed);
+                            }
+                            ImGui::EndTable();
+                        }
+                    }
+                } else {
+                    if (cfg.resultShowDiagnosticTotal)
+                        ImGui::TextColored(outcomeColor, "%zu diagnostic%s",
+                            entries, entries == 1 ? "" : "s");
+
+                    if (cfg.resultShowFallbackNotice &&
+                        toastOutcome == ToastOutcome::OfflineFallback) {
+                        ImGui::Separator();
+                        ImGui::TextColored(outcomeColor,
+                            "MODEL ENDPOINT OFFLINE - LOCAL FILTER ONLY");
+                        ImGui::TextWrapped(
+                            "Showing conservative local results; more candidates may be included.");
+                    } else if (cfg.resultShowFallbackNotice &&
+                        toastOutcome == ToastOutcome::ModelFallback) {
+                        ImGui::Separator();
+                        ImGui::TextColored(outcomeColor,
+                            "MODEL ONLINE - LOCAL FILTER USED");
+                        ImGui::TextWrapped(
+                            "Connectivity is OK. The model response was not usable enough, so Log Sift kept conservative local diagnostics.");
                     }
 
-                    if (cfg.toastShowTime)
-                        ImGui::TextDisabled("Completed in %.2f s", stats.seconds);
+                    std::string sourceLabel = stats.logType;
+                    const bool redundantProfile =
+                        (stats.logType == "Unreal" && stats.profile == "Unreal Engine") ||
+                        stats.profile.empty() || stats.profile == stats.logType;
+                    if (!redundantProfile && stats.profile != "Generic")
+                        sourceLabel += " / " + stats.profile;
 
-                    if (toastAutoCopied) {
+                    const bool hasResultStats =
+                        cfg.resultShowSource || cfg.resultShowPrefilterCounts ||
+                        cfg.resultShowEstimatedTokens ||
+                        (cfg.resultShowRealTokens &&
+                            (stats.promptTokens > 0 || stats.completionTokens > 0)) ||
+                        cfg.resultShowBytesReduction || cfg.resultShowTime;
+
+                    if (hasResultStats && ImGui::BeginTable("##result_popup_stats", 2,
+                        ImGuiTableFlags_SizingStretchProp)) {
+                        ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+                        ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
+
+                        if (cfg.resultShowSource) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Source");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextUnformatted(sourceLabel.c_str());
+                        }
+                        if (cfg.resultShowPrefilterCounts) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Prefilter");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%zu -> %zu lines  |  %zu -> %zu words",
+                                stats.inputLines, stats.filteredLines,
+                                stats.inputWords, stats.filteredWords);
+                        }
+                        if (cfg.resultShowEstimatedTokens) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Est. tokens");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("~%zu -> ~%zu",
+                                stats.estimatedInputTokens, stats.estimatedFilteredTokens);
+                        }
+                        if (cfg.resultShowRealTokens &&
+                            (stats.promptTokens > 0 || stats.completionTokens > 0)) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("LLM tokens");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextColored(ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
+                                "%d prompt + %d output",
+                                stats.promptTokens, stats.completionTokens);
+                        }
+                        if (cfg.resultShowBytesReduction) {
+                            const double reduced = stats.inputBytes > 0
+                                ? 100.0 * (1.0 -
+                                    static_cast<double>(stats.filteredBytes) /
+                                    static_cast<double>(stats.inputBytes))
+                                : 0.0;
+                            const ImVec4 reductionColor = reduced >= 75.0
+                                ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                                : reduced >= 40.0
+                                    ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                                    : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Data");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%zu -> %zu bytes", stats.inputBytes, stats.filteredBytes);
+                            ImGui::SameLine();
+                            ImGui::TextColored(reductionColor, "%.1f%% reduced", reduced);
+                        }
+                        if (cfg.resultShowTime) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Time");
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%.2f s", stats.seconds);
+                        }
+                        ImGui::EndTable();
+                    }
+
+                    if (cfg.resultShowAutoCopy && toastAutoCopied) {
                         ImGui::Separator();
                         ImGui::TextColored(
                             ImVec4(0.32f, 0.92f, 0.58f, 1.0f),
                             "AUTO-COPIED TO CLIPBOARD");
                     }
-                }
-                if (!toastProcessing && cfg.toastShowCounts) ImGui::TextDisabled("%zu included  |  %zu questionable", entries, questionable);
-                if (!toastProcessing && cfg.toastShowPreview && !output.empty()) {
-                    ImGui::Separator();
-                    const auto previewEntries = DiagnosticEntries(output);
-                    const size_t previewCount = std::min<size_t>(
-                        previewEntries.size(), static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10)));
-                    for (size_t i = 0; i < previewCount; ++i) {
-                        std::string preview = previewEntries[i];
-                        const size_t nl = preview.find('\n');
-                        if (nl != std::string::npos) preview.resize(nl);
-                        if (preview.size() > 88) preview = preview.substr(0, 85) + "...";
-                        ImVec4 previewColor(0.78f, 0.80f, 0.84f, 1.0f);
-                        if (preview.find("Fatal") != std::string::npos || preview.find("Error") != std::string::npos ||
-                            preview.find(" error ") != std::string::npos || preview.find("error:") != std::string::npos)
-                            previewColor = ImVec4(0.95f, 0.30f, 0.30f, 1.0f);
-                        else if (preview.find("Warning") != std::string::npos || preview.find("warning") != std::string::npos)
-                            previewColor = ImVec4(0.95f, 0.72f, 0.24f, 1.0f);
-                        else if (preview.find("note:") != std::string::npos || preview.find("Note:") != std::string::npos)
-                            previewColor = ImVec4(0.38f, 0.68f, 0.95f, 1.0f);
-                        ImGui::TextColored(previewColor, "%s", preview.c_str());
+
+                    if (cfg.resultShowCounts)
+                        ImGui::TextDisabled("%zu included  |  %zu questionable",
+                            entries, questionable);
+
+                    if (cfg.resultShowPreview && !output.empty()) {
+                        ImGui::Separator();
+                        const auto previewEntries = DiagnosticEntries(output);
+                        const size_t previewCount = std::min<size_t>(
+                            previewEntries.size(),
+                            static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10)));
+                        for (size_t i = 0; i < previewCount; ++i) {
+                            std::string preview = previewEntries[i];
+                            const size_t nl = preview.find('\n');
+                            if (nl != std::string::npos) preview.resize(nl);
+                            if (preview.size() > 88)
+                                preview = preview.substr(0, 85) + "...";
+                            ImVec4 previewColor(0.78f, 0.80f, 0.84f, 1.0f);
+                            if (preview.find("Fatal") != std::string::npos ||
+                                preview.find("Error") != std::string::npos ||
+                                preview.find(" error ") != std::string::npos ||
+                                preview.find("error:") != std::string::npos)
+                                previewColor = ImVec4(0.95f, 0.30f, 0.30f, 1.0f);
+                            else if (preview.find("Warning") != std::string::npos ||
+                                preview.find("warning") != std::string::npos)
+                                previewColor = ImVec4(0.95f, 0.72f, 0.24f, 1.0f);
+                            else if (preview.find("note:") != std::string::npos ||
+                                preview.find("Note:") != std::string::npos)
+                                previewColor = ImVec4(0.38f, 0.68f, 0.95f, 1.0f);
+                            ImGui::TextColored(previewColor, "%s", preview.c_str());
+                        }
+                        if (previewEntries.size() > previewCount)
+                            ImGui::TextDisabled("+%zu more",
+                                previewEntries.size() - previewCount);
                     }
-                    if (previewEntries.size() > previewCount)
-                        ImGui::TextDisabled("+%zu more", previewEntries.size() - previewCount);
                 }
                 if (!toastProcessing) {
                     const auto nowToast = std::chrono::steady_clock::now();
