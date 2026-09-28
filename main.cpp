@@ -4167,12 +4167,24 @@ int main(int argc, char** argv) {
         ImGui::TextDisabled("Skips the model when deterministic extraction is sufficient.");
 
         ImGui::TextUnformatted("Include");
-        ImGui::SameLine(); ImGui::Checkbox("Errors / Fatal", &cfg.showErrors);
-        ImGui::SameLine(); ImGui::Checkbox("Warnings", &cfg.showWarnings);
-        ImGui::SameLine(); ImGui::Checkbox("Notes / Context", &cfg.showContext);
-        ImGui::SameLine(); ImGui::Checkbox("Known noise", &cfg.showKnownNoise);
-        ImGui::SameLine(); ImGui::Checkbox("Timestamps", &cfg.showTimestamps);
-        ImGui::SameLine(); ImGui::Checkbox("Group", &cfg.groupDiagnostics);
+        ImGui::SameLine();
+        ColoredCheckbox("Errors / Fatal", &cfg.showErrors,
+            ImVec4(1.00f, 0.38f, 0.38f, 1.0f));
+        ImGui::SameLine();
+        ColoredCheckbox("Warnings", &cfg.showWarnings,
+            ImVec4(1.00f, 0.82f, 0.25f, 1.0f));
+        ImGui::SameLine();
+        ColoredCheckbox("Notes / Context", &cfg.showContext,
+            ImVec4(0.42f, 0.78f, 1.00f, 1.0f));
+        ImGui::SameLine();
+        ColoredCheckbox("Known noise", &cfg.showKnownNoise,
+            ImVec4(0.62f, 0.64f, 0.70f, 1.0f));
+        ImGui::SameLine();
+        ColoredCheckbox("Timestamps", &cfg.showTimestamps,
+            ImVec4(0.72f, 0.62f, 1.00f, 1.0f));
+        ImGui::SameLine();
+        ColoredCheckbox("Group", &cfg.groupDiagnostics,
+            ImVec4(0.38f, 0.88f, 0.56f, 1.0f));
 
         if (ImGui::CollapsingHeader("Instructions / system prompt")) {
             ImGui::InputTextMultiline("##prompt", &prompt, {-1, 120});
