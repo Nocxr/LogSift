@@ -1460,6 +1460,8 @@ std::string LimitDiagnosticLines(const std::string& text, int maxLines = 12) {
     return out.str();
 }
 
+std::vector<std::string> DiagnosticEntries(const std::string& text);
+
 std::string FinalizeModelText(std::string text, const std::string& input, const Config& cfg) {
     text = DedupeLines(text);
     if (text == "NO_DIAGNOSTICS\n" || text == "NO_DIAGNOSTICS") return "NO_DIAGNOSTICS";
@@ -1827,6 +1829,7 @@ int main(int argc, char** argv) {
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
     std::future<SiftResult> request;
+    std::shared_ptr<SiftProgress> activeProgress;
     unsigned long long requestGeneration = 0;
     unsigned long long activeRequestGeneration = 0;
     std::future<std::string> healthRequest;
@@ -2035,10 +2038,15 @@ int main(int argc, char** argv) {
                         const std::string capturedPrompt = prompt;
                         status = "Clipboard log detected - sifting...";
                         activeRequestGeneration = requestGeneration;
+                        activeProgress = std::make_shared<SiftProgress>();
+                        const int initialChunks = static_cast<int>(ChunkModelInput(previewFiltered).size());
+                        activeProgress->total = std::max(1, initialChunks);
+                        activeProgress->chunking = initialChunks > 1;
                         busy = true;
-                        request = std::async(std::launch::async, [capturedCfg, capturedInput, capturedPrompt] {
-                            return Send(capturedCfg, capturedInput, capturedPrompt);
-                        });
+                        request = std::async(std::launch::async,
+                            [capturedCfg, capturedInput, capturedPrompt, progress = activeProgress] {
+                                return Send(capturedCfg, capturedInput, capturedPrompt, progress);
+                            });
                     }
                 }
             }
@@ -2423,9 +2431,13 @@ int main(int argc, char** argv) {
                     ++requestGeneration;
                     activeRequestGeneration = requestGeneration;
                     busy = true;
+                    activeProgress = std::make_shared<SiftProgress>();
+                    const int initialChunks = static_cast<int>(ChunkModelInput(previewFiltered).size());
+                    activeProgress->total = std::max(1, initialChunks);
+                    activeProgress->chunking = initialChunks > 1;
                     request = std::async(std::launch::async,
-                        [capturedCfg, capturedInput, capturedPrompt] {
-                            return Send(capturedCfg, capturedInput, capturedPrompt);
+                        [capturedCfg, capturedInput, capturedPrompt, progress = activeProgress] {
+                            return Send(capturedCfg, capturedInput, capturedPrompt, progress);
                         });
                 }
             }
