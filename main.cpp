@@ -34,6 +34,8 @@ extern "C" bool LogSiftMacTrayTakeCopy(void);
 extern "C" bool LogSiftMacTrayTakeQuit(void);
 extern "C" void LogSiftMacTraySetWatch(bool enabled);
 extern "C" long long LogSiftMacClipboardChangeCount(void);
+extern "C" bool LogSiftMacGetStartAtLogin(void);
+extern "C" bool LogSiftMacSetStartAtLogin(bool enabled);
 #endif
 
 namespace {
@@ -124,6 +126,46 @@ void ShowSystemToast(const std::string& title, const std::string& body) {
     n.dwInfoFlags = NIIF_INFO;
     Shell_NotifyIconW(NIM_MODIFY, &n);
 }
+
+bool WindowsGetStartAtLogin() {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) return false;
+    wchar_t value[32768]{};
+    DWORD type = 0;
+    DWORD bytes = sizeof(value);
+    const LONG rc = RegQueryValueExW(key, L"Log Sift", nullptr, &type,
+        reinterpret_cast<BYTE*>(value), &bytes);
+    RegCloseKey(key);
+    return rc == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ);
+}
+
+bool WindowsSetStartAtLogin(bool enabled) {
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) return false;
+
+    LONG rc = ERROR_SUCCESS;
+    if (enabled) {
+        wchar_t exePath[32768]{};
+        const DWORD len = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
+        if (len == 0 || len >= std::size(exePath)) {
+            RegCloseKey(key);
+            return false;
+        }
+        std::wstring command = L"\"" + std::wstring(exePath, len) + L"\"";
+        rc = RegSetValueExW(key, L"Log Sift", 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(command.c_str()),
+            static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
+    } else {
+        rc = RegDeleteValueW(key, L"Log Sift");
+        if (rc == ERROR_FILE_NOT_FOUND) rc = ERROR_SUCCESS;
+    }
+    RegCloseKey(key);
+    return rc == ERROR_SUCCESS;
+}
 #endif
 
 struct Config {
@@ -143,9 +185,13 @@ struct Config {
     float toastSeconds = 8.0f;
     int toastFps = 120;
     bool toastSound = true;
-    int startSoundPreset = 1; // 0 Off, 1 Tick, 2 Soft, 3 Chime
-    int endSoundPreset = 3;   // 0 Off, 1 Soft, 2 Chime, 3 Success, 4 Attention
+    int startSoundPreset = 1;
+    int endSoundPreset = 3;
+    int offlineSoundPreset = 5;
     std::string toastSoundFile;
+    bool autoCopyResults = false;
+    bool watchClipboard = true;
+    bool preferFastPath = true;
     bool toastShowType = true;
     bool toastShowBytes = true;
     bool toastShowTime = true;
@@ -182,14 +228,22 @@ void PlaySynthPreset(int preset, bool startEvent) {
     if (preset<=0) return;
     std::vector<SynthTone> tones; float seconds=0.45f;
     if (startEvent) {
-        if (preset==1) { tones={{880,0.00f,0.10f,0.20f}}; seconds=0.16f; }                    // Tick
+        if (preset==1) { tones={{880,0.00f,0.10f,0.20f}}; seconds=0.16f; } // Tick
         else if (preset==2) { tones={{520,0.00f,0.22f,0.18f},{660,0.07f,0.20f,0.13f}}; seconds=0.34f; } // Soft
-        else { tones={{620,0.00f,0.22f,0.18f},{830,0.10f,0.26f,0.16f}}; seconds=0.42f; }     // Chime
+        else if (preset==3) { tones={{620,0.00f,0.22f,0.18f},{830,0.10f,0.26f,0.16f}}; seconds=0.42f; } // Chime
+        else if (preset==4) { tones={{760,0.00f,0.08f,0.18f},{760,0.13f,0.08f,0.16f}}; seconds=0.28f; } // Pulse
+        else if (preset==5) { tones={{420,0.00f,0.28f,0.13f},{760,0.05f,0.30f,0.15f}}; seconds=0.42f; } // Sweep
+        else if (preset==6) { tones={{1040,0.00f,0.12f,0.18f},{780,0.10f,0.16f,0.13f}}; seconds=0.30f; } // Ping
+        else { tones={{700,0.00f,0.09f,0.16f},{920,0.12f,0.09f,0.17f},{700,0.24f,0.09f,0.14f}}; seconds=0.38f; } // Triple
     } else {
         if (preset==1) { tones={{560,0.00f,0.25f,0.16f},{700,0.08f,0.24f,0.12f}}; seconds=0.38f; } // Soft
         else if (preset==2) { tones={{620,0.00f,0.28f,0.19f},{830,0.12f,0.30f,0.17f}}; seconds=0.50f; } // Chime
         else if (preset==3) { tones={{660,0.00f,0.26f,0.18f},{880,0.12f,0.32f,0.19f},{1100,0.23f,0.30f,0.13f}}; seconds=0.60f; } // Success
-        else { tones={{440,0.00f,0.18f,0.20f},{330,0.17f,0.30f,0.22f}}; seconds=0.52f; }       // Attention
+        else if (preset==4) { tones={{440,0.00f,0.18f,0.20f},{330,0.17f,0.30f,0.22f}}; seconds=0.52f; } // Attention
+        else if (preset==5) { tones={{520,0.00f,0.13f,0.18f},{390,0.12f,0.18f,0.18f},{300,0.27f,0.24f,0.15f}}; seconds=0.58f; } // Offline
+        else if (preset==6) { tones={{900,0.00f,0.08f,0.18f},{1120,0.08f,0.10f,0.14f}}; seconds=0.24f; } // Pop
+        else if (preset==7) { tones={{740,0.00f,0.10f,0.14f},{980,0.08f,0.12f,0.17f},{1240,0.16f,0.13f,0.12f}}; seconds=0.34f; } // Spark
+        else { tones={{360,0.00f,0.30f,0.17f},{270,0.10f,0.34f,0.13f}}; seconds=0.50f; } // Low
     }
     auto pcm=MakeNotificationPcm(tones,seconds);
     SDL_AudioSpec spec{}; spec.format=SDL_AUDIO_F32; spec.channels=1; spec.freq=48000;
