@@ -3970,9 +3970,11 @@ int main(int argc, char** argv) {
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
         ImGui::SeparatorText("MODEL / CONNECTION");
-        ImGui::TextUnformatted("Endpoint"); ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.42f, 0.78f, 1.00f, 1.0f), "Endpoint");
+        ImGui::SameLine();
         ImGui::SetNextItemWidth(-1); ImGui::InputText("##endpoint", &cfg.endpoint);
-        ImGui::TextUnformatted("Model"); ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.72f, 0.62f, 1.00f, 1.0f), "Model");
+        ImGui::SameLine();
         ImGui::SetNextItemWidth(300);
         if (!availableModels.empty()) {
             if (ImGui::BeginCombo("##modelcombo", cfg.model.c_str())) {
@@ -4001,7 +4003,9 @@ int main(int argc, char** argv) {
             modelListRequest = std::async(std::launch::async,
                 [capturedCfg] { return ListModels(capturedCfg); });
         }
-        ImGui::SameLine(); ImGui::TextUnformatted("API key"); ImGui::SameLine();
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.64f, 1.0f), "API key");
+        ImGui::SameLine();
         ImGui::SetNextItemWidth(-1); ImGui::InputText("##key", &cfg.apiKey, ImGuiInputTextFlags_Password);
 
         if (ImGui::Button("LM Studio")) {
@@ -4064,20 +4068,40 @@ int main(int argc, char** argv) {
                 connectionColor = ImVec4(0.95f, 0.62f, 0.22f, 1.0f);
                 break;
         }
-        ImGui::TextColored(connectionColor, "%s", connectionLabel);
+        DrawStatusPill(connectionLabel, connectionColor);
         ImGui::SameLine();
-        ImGui::TextDisabled("(%s)", health.c_str());
+
+        ImVec4 visionColor(0.58f, 0.60f, 0.66f, 1.0f);
+        if (visionSupportKnown && visionSupported)
+            visionColor = ImVec4(0.25f, 0.88f, 0.78f, 1.0f);
+        else if (visionSupportKnown && !visionSupported)
+            visionColor = ImVec4(0.95f, 0.58f, 0.22f, 1.0f);
+        else if (checkingHealth)
+            visionColor = ImVec4(0.35f, 0.72f, 1.00f, 1.0f);
+
+        const std::string visionPill =
+            "OCR / VISION  " +
+            std::string(
+                !visionSupportKnown
+                    ? (checkingHealth ? "CHECKING" : "UNKNOWN")
+                    : visionSupported ? "SUPPORTED" : "NOT SUPPORTED");
+        DrawStatusPill(visionPill.c_str(), visionColor);
+
         ImGui::SameLine();
-        ImGui::TextDisabled("| Vision/OCR: %s", visionStatus.c_str());
-        ImGui::SameLine();
-        if (lastResponseSeconds > 0.0) ImGui::Text("| Last: %.3f s", lastResponseSeconds);
+        ImGui::TextDisabled("%s", health.c_str());
+        if (lastResponseSeconds > 0.0) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.55f, 0.82f, 1.0f, 1.0f),
+                "Last %.3f s", lastResponseSeconds);
+        }
         ImGui::SameLine();
         if (ImGui::Button("Reset Prompt")) prompt = kDefaultPrompt;
         ImGui::SameLine();
         ImGui::TextDisabled("%s", status.c_str());
         ImGui::TextDisabled("%s", benchmarkStatus.c_str());
 
-        ImGui::TextUnformatted("Compute"); ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.72f, 0.62f, 1.00f, 1.0f), "Compute");
+        ImGui::SameLine();
         const char* computeItems[] = {"Auto", "GPU max", "CPU"};
         ImGui::SetNextItemWidth(120);
         ImGui::Combo("##compute", &cfg.computeMode, computeItems, 3);
