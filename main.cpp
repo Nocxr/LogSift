@@ -2256,6 +2256,33 @@ bool LoadFile(const char* path, std::string& input, std::string& status) {
              " (" + std::to_string(input.size()) + " bytes)";
     return true;
 }
+
+bool LoadImageFile(const char* path, ClipboardImage& image, std::string& status) {
+    if (!path) return false;
+    const std::filesystem::path p(path);
+    std::string ext = p.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (ext != ".png" && ext != ".jpg" && ext != ".jpeg")
+        return false;
+
+    std::ifstream f(p, std::ios::binary);
+    if (!f) {
+        status = "Could not open dropped image.";
+        return false;
+    }
+    image.bytes.assign(
+        std::istreambuf_iterator<char>(f),
+        std::istreambuf_iterator<char>());
+    if (image.bytes.empty()) {
+        status = "Dropped image was empty.";
+        return false;
+    }
+    image.mimeType = ext == ".png" ? "image/png" : "image/jpeg";
+    status = "Loaded image " + p.filename().string() +
+        " (" + std::to_string(image.bytes.size()) + " bytes)";
+    return true;
+}
 std::pair<size_t, size_t> HumanTextStats(const std::string& s) {
     if (s.empty()) return {0, 0};
     size_t lines = 1, words = 0;
@@ -2432,7 +2459,7 @@ void DrawToastPreviewEntries(const char* id, const std::vector<std::string>& ent
     CopyFlashState& copyFlash) {
 
     ImGui::BeginChild(id, {-1, height}, ImGuiChildFlags_Borders,
-        ImGuiWindowFlags_NoHorizontalScroll);
+        ImGuiWindowFlags_None);
     if (previewCount == 0) {
         ImGui::TextDisabled("No entries.");
         ImGui::EndChild();
