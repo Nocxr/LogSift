@@ -4885,7 +4885,7 @@ int main(int argc, char** argv) {
                 const float closeSize = 26.0f;
                 const float topButtonGap = 6.0f;
                 const float controlGroupWidth =
-                    closeSize * 2.0f + topButtonGap;
+                    closeSize * 3.0f + topButtonGap * 2.0f;
                 const float controlsRight =
                     ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
                 const float topControlsX =
@@ -4909,6 +4909,18 @@ int main(int argc, char** argv) {
                 DrawToastSourceBadge(stats.sourceKind, outcomeColor);
 
                 ImGui::SetCursorPos(ImVec2(topControlsX, topControlsY));
+                if (ToastGearIconButton(
+                        ImVec4(0.78f, 0.84f, 0.90f, 1.0f), closeSize)) {
+                    SDL_ShowWindow(window);
+                    SDL_RaiseWindow(window);
+                    status = "Opened Log Sift from notification.";
+                    AppendActivityLog(appLog, "UI",
+                        "Main window opened from notification gear.");
+                }
+
+                ImGui::SetCursorPos(ImVec2(
+                    topControlsX + closeSize + topButtonGap,
+                    topControlsY));
                 const ImVec4 soundIconColor = cfg.toastSound
                     ? outcomeColor
                     : ImVec4(0.58f, 0.60f, 0.64f, 1.0f);
@@ -4930,7 +4942,7 @@ int main(int argc, char** argv) {
                 }
 
                 ImGui::SetCursorPos(ImVec2(
-                    topControlsX + closeSize + topButtonGap,
+                    topControlsX + closeSize * 2.0f + topButtonGap * 2.0f,
                     topControlsY));
                 if (ToastCloseIconButton(ImVec4(0.88f, 0.90f, 0.93f, 1.0f), closeSize)) {
                     AppendActivityLog(appLog, "UI",
