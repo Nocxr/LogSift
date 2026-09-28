@@ -2734,23 +2734,23 @@ int main(int argc, char** argv) {
                     "Clipboard image detected (" + clipboardImage.mimeType + ", " +
                     std::to_string(clipboardImage.bytes.size()) + " bytes).");
 
-                output.clear();
-                questionableOutput.clear();
-                lastInputBytes = 0;
-                lastFilteredBytes = 0;
-                stats = {};
-                stats.logType = "Image / OCR";
-                stats.profile = "Vision OCR";
-                stats.model = cfg.model;
-                stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
-                stats.inputBytes = clipboardImage.bytes.size();
-                stats.route = "Vision OCR";
-
                 if (!cfg.ocrEnabled) {
                     status = "Clipboard image ignored - OCR is disabled.";
-                    stats.route = "OCR disabled";
                     AppendActivityLog(appLog, "OCR", status);
-                } else if (!visionSupportKnown || !visionSupported) {
+                } else {
+                    output.clear();
+                    questionableOutput.clear();
+                    lastInputBytes = 0;
+                    lastFilteredBytes = 0;
+                    stats = {};
+                    stats.logType = "Image / OCR";
+                    stats.profile = "Vision OCR";
+                    stats.model = cfg.model;
+                    stats.compute = cfg.computeMode == 1 ? "GPU max" : cfg.computeMode == 2 ? "CPU" : "Auto";
+                    stats.inputBytes = clipboardImage.bytes.size();
+                    stats.route = "Vision OCR";
+
+                    if (!visionSupportKnown || !visionSupported) {
                     status = visionSupportKnown
                         ? "Clipboard image ignored - selected model does not support Vision/OCR."
                         : "Clipboard image ignored - Vision/OCR support has not been confirmed.";
@@ -2796,6 +2796,7 @@ int main(int argc, char** argv) {
                             return SendClipboardImage(
                                 capturedCfg, capturedImage, capturedPrompt, progress);
                         });
+                    }
                 }
             }
 
