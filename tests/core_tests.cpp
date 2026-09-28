@@ -3,6 +3,7 @@
 #include "core/stats_history.h"
 #include "core/task.h"
 #include "ui/popup_timer.h"
+#include "profiles/profiles.h"
 
 #include <chrono>
 #include <filesystem>
@@ -26,6 +27,18 @@ int main() {
     ok &= check(IsEndpointUnavailableError("curl failed (exit 7)"), "offline detection");
     auto task = LaunchBackgroundTask([] { return 42; });
     ok &= check(task.get() == 42, "background task result");
+
+    LogProfile generic;
+    generic.id = "generic";
+    generic.name = "Generic";
+    LogProfile compiler;
+    compiler.id = "msvc";
+    compiler.name = "MSVC";
+    compiler.detect = {"error C"};
+    gProfiles = {generic, compiler};
+    ok &= check(DetectProfile("C:\\\\src\\\\a.cpp(2): error C2143", config)->id == "msvc",
+                "profile detection");
+    gProfiles.clear();
 
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::time_point(std::chrono::seconds(10));

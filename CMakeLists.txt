@@ -93,6 +93,7 @@ set(LOGSIFT_SOURCE_FRAGMENTS
     src/core/atomic_file.h
     src/core/sift_types.inl
     src/profiles/profiles.inl
+    src/profiles/profiles.h
     src/model/client.h
     src/model/fast_path.inl
     src/model/vision.inl
@@ -128,6 +129,7 @@ add_executable(logsift
     src/core/atomic_file.cpp
     src/model/http.cpp
     src/model/client.cpp
+    src/profiles/profiles.cpp
     src/ui/popup_timer.cpp
     ${LOGSIFT_SOURCE_FRAGMENTS})
 target_compile_definitions(logsift PRIVATE
@@ -220,6 +222,7 @@ if(BUILD_TESTING)
         src/config/config_store.cpp
         src/core/stats_history.cpp
         src/core/atomic_file.cpp
+        src/profiles/profiles.cpp
         src/ui/popup_timer.cpp)
     target_include_directories(logsift_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(logsift_core_tests PRIVATE nlohmann_json::nlohmann_json)

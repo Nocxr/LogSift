@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include "src/model/http.h"
 #include "src/model/client.h"
+#include "src/profiles/profiles.h"
 #include "src/ui/popup_timer.h"
 #include "src/config/config_types.h"
 #include "src/config/config_store.h"

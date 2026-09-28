@@ -1,3 +1,5 @@
+#pragma once
+
 // Persistent application configuration data.
 // Shared by the application and compiled processing helpers.
 
