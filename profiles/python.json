@@ -1,0 +1,61 @@
+{
+  "id": "python",
+  "name": "Python",
+  "detect": [
+    "Traceback (most recent call last):",
+    "pytest",
+    "Python ",
+    ".py\"",
+    "ModuleNotFoundError",
+    "ImportError",
+    "SyntaxError",
+    "pip "
+  ],
+  "high_priority": [
+    "Traceback (most recent call last):",
+    "SyntaxError:",
+    "IndentationError:",
+    "TabError:",
+    "NameError:",
+    "TypeError:",
+    "ValueError:",
+    "AttributeError:",
+    "KeyError:",
+    "IndexError:",
+    "RuntimeError:",
+    "AssertionError:",
+    "ImportError:",
+    "ModuleNotFoundError:",
+    "FileNotFoundError:",
+    "PermissionError:",
+    "ConnectionError:",
+    "TimeoutError:",
+    "MemoryError:",
+    "RecursionError:",
+    "ZeroDivisionError:",
+    "OSError:",
+    "FAILED ",
+    "ERROR ",
+    "E   "
+  ],
+  "warnings": [
+    "Warning:",
+    "DeprecationWarning:",
+    "FutureWarning:",
+    "RuntimeWarning:",
+    "UserWarning:",
+    "ResourceWarning:",
+    "PytestWarning"
+  ],
+  "questionable": [
+    "File \"",
+    "During handling of the above exception",
+    "The above exception was the direct cause"
+  ],
+  "noise": [
+    "[notice] A new release of pip is available",
+    "To update, run:",
+    "collected ",
+    "test session starts"
+  ]
+}
