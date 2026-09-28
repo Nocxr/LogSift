@@ -1621,6 +1621,10 @@ int main(int argc, char** argv) {
                     status = std::string(autoCopied
                         ? "LLM unavailable - local fallback used and actionable result auto-copied. "
                         : "LLM unavailable - local fallback used. ") + e.what();
+                    if (cfg.toastSound) {
+                        PlaySynthPreset(cfg.offlineSoundPreset, false);
+                        toastSoundPlayed = true;
+                    }
 
                     if (cfg.watchClipboard) {
                         toastText = "Offline fallback";
