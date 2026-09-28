@@ -18,6 +18,7 @@ static NSMenuItem* gAutoCopyItem = nil;
 - (void)openLog:(id)sender;
 - (void)copyResults:(id)sender;
 - (void)quitApp:(id)sender;
+- (void)openFromSecondInstance:(NSNotification*)note;
 @end
 
 @implementation LogSiftStatusTarget
@@ -27,6 +28,7 @@ static NSMenuItem* gAutoCopyItem = nil;
 - (void)openLog:(id)sender { (void)sender; gOpenLog = true; }
 - (void)copyResults:(id)sender { (void)sender; gCopy = true; }
 - (void)quitApp:(id)sender { (void)sender; gQuit = true; }
+- (void)openFromSecondInstance:(NSNotification*)note { (void)note; gOpen = true; }
 @end
 
 static LogSiftStatusTarget* gTarget = nil;
@@ -46,6 +48,11 @@ extern "C" void LogSiftMacTrayInit(void) {
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
         gTarget = [LogSiftStatusTarget new];
+        [[NSDistributedNotificationCenter defaultCenter]
+            addObserver:gTarget
+               selector:@selector(openFromSecondInstance:)
+                   name:@"com.nocxr.logsift.open-existing"
+                 object:nil];
         gItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
 
         NSStatusBarButton* button = gItem.button;
@@ -164,6 +171,29 @@ extern "C" long long LogSiftMacClipboardChangeCount(void) {
 static NSString* LogSiftLaunchAgentPath(void) {
     NSString* launchAgents = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/LaunchAgents"];
     return [launchAgents stringByAppendingPathComponent:@"com.nocxr.logsift.plist"];
+}
+
+extern "C" bool LogSiftMacActivateExistingInstance(void) {
+    NSString* bundleId = [[NSBundle mainBundle] bundleIdentifier];
+    if (!bundleId || bundleId.length == 0) return false;
+
+    const pid_t selfPid = [[NSProcessInfo processInfo] processIdentifier];
+    NSArray<NSRunningApplication*>* apps =
+        [NSRunningApplication runningApplicationsWithBundleIdentifier:bundleId];
+
+    for (NSRunningApplication* app in apps) {
+        if (app.processIdentifier == selfPid) continue;
+
+        [[NSDistributedNotificationCenter defaultCenter]
+            postNotificationName:@"com.nocxr.logsift.open-existing"
+                          object:nil
+                        userInfo:nil
+              deliverImmediately:YES];
+
+        [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+        return true;
+    }
+    return false;
 }
 
 extern "C" bool LogSiftMacGetStartAtLogin(void) {
