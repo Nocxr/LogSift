@@ -1,0 +1,33 @@
+{
+  "id": "unreal",
+  "name": "Unreal Engine",
+  "detect": [
+    "LogInit:",
+    "LogModuleManager:",
+    "LogTemp:",
+    "UnrealPak"
+  ],
+  "high_priority": [
+    ": Error:",
+    "Fatal error:",
+    "Assertion failed",
+    "Ensure condition failed",
+    "Unhandled Exception",
+    "LowLevelFatalError"
+  ],
+  "warnings": [
+    ": Warning:"
+  ],
+  "questionable": [
+    "Failed to SetupSDK",
+    "Required extension",
+    "Could not enable all required OpenXR extensions",
+    "Incompatible or missing module"
+  ],
+  "noise": [
+    "WinPixGpuCapturer",
+    "VtuneApi",
+    "Wintab32",
+    "aqProf.dll"
+  ]
+}
