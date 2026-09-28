@@ -3985,72 +3985,7 @@ int main(int argc, char** argv) {
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
         ImGui::SeparatorText("MODEL / CONNECTION");
-        ImGui::TextColored(ImVec4(0.42f, 0.78f, 1.00f, 1.0f), "Endpoint");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1); ImGui::InputText("##endpoint", &cfg.endpoint);
-        ImGui::TextColored(ImVec4(0.72f, 0.62f, 1.00f, 1.0f), "Model");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(300);
-        if (!availableModels.empty()) {
-            if (ImGui::BeginCombo("##modelcombo", cfg.model.c_str())) {
-                for (const auto& m : availableModels) {
-                    const bool selected = m == cfg.model;
-                    if (ImGui::Selectable(m.c_str(), selected)) {
-                        if (cfg.model != m) {
-                            cfg.model = m;
-                            startHealthCheck(false, false);
-                        }
-                    }
-                    if (selected) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-        } else {
-            ImGui::InputText("##model", &cfg.model);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(loadingModels ? "Refreshing Models..." : "Refresh Models")) {
-            const Config capturedCfg = cfg;
-            loadingModels = true;
-            AppendActivityLog(appLog, "MODELS", "Manual model refresh started.");
-            startupConnectionSequence = false;
-            connectionStage = ConnectionStage::LoadingModels;
-            modelListRequest = std::async(std::launch::async,
-                [capturedCfg] { return ListModels(capturedCfg); });
-        }
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.64f, 1.0f), "API key");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1); ImGui::InputText("##key", &cfg.apiKey, ImGuiInputTextFlags_Password);
 
-        if (ImGui::Button("LM Studio")) {
-            cfg.endpoint = "http://127.0.0.1:1234/v1/chat/completions";
-            cfg.model = "google/gemma-4-e4b"; cfg.apiKey.clear();
-            health = "Not checked";
-            visionSupportKnown = false;
-            visionSupported = false;
-            visionStatus = "Not checked";
-        }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(checkingHealth || cfg.endpoint.empty());
-        if (ImGui::Button(checkingHealth ? "Checking..." : "Check Model")) {
-            startHealthCheck(false, true);
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(benchmarking || cfg.endpoint.empty() || cfg.model.empty());
-        if (ImGui::Button(benchmarking ? "Benchmarking..." : "Benchmark")) {
-            const Config capturedCfg = cfg;
-            benchmarking = true;
-            AppendActivityLog(appLog, "BENCH", "Manual benchmark started for " + cfg.model + ".");
-            startupConnectionSequence = false;
-            connectionStage = ConnectionStage::Benchmarking;
-            benchmarkStatus = "Benchmarking...";
-            benchmarkRequest = std::async(std::launch::async,
-                [capturedCfg] { return Benchmark(capturedCfg); });
-        }
-        ImGui::EndDisabled();
-        ImGui::Spacing();
         const char* connectionLabel = "Ready";
         ImVec4 connectionColor(0.30f, 0.90f, 0.48f, 1.0f);
         switch (connectionStage) {
@@ -4083,8 +4018,6 @@ int main(int argc, char** argv) {
                 connectionColor = ImVec4(0.95f, 0.62f, 0.22f, 1.0f);
                 break;
         }
-        DrawStatusPill(connectionLabel, connectionColor);
-        ImGui::SameLine();
 
         ImVec4 visionColor(0.58f, 0.60f, 0.66f, 1.0f);
         if (visionSupportKnown && visionSupported)
@@ -4100,35 +4033,165 @@ int main(int argc, char** argv) {
                 !visionSupportKnown
                     ? (checkingHealth ? "CHECKING" : "UNKNOWN")
                     : visionSupported ? "SUPPORTED" : "NOT SUPPORTED");
-        DrawStatusPill(visionPill.c_str(), visionColor);
 
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", health.c_str());
-        if (lastResponseSeconds > 0.0) {
+        if (ImGui::BeginTable(
+                "##model_connection_table", 2,
+                ImGuiTableFlags_SizingStretchProp |
+                ImGuiTableFlags_BordersInnerH)) {
+            ImGui::TableSetupColumn(
+                "##connection_label", ImGuiTableColumnFlags_WidthFixed, 86.0f);
+            ImGui::TableSetupColumn(
+                "##connection_value", ImGuiTableColumnFlags_WidthStretch);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextColored(
+                ImVec4(0.42f, 0.78f, 1.00f, 1.0f), "Endpoint");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputText("##endpoint", &cfg.endpoint);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextColored(
+                ImVec4(0.72f, 0.62f, 1.00f, 1.0f), "Model");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(340);
+            if (!availableModels.empty()) {
+                if (ImGui::BeginCombo("##modelcombo", cfg.model.c_str())) {
+                    for (const auto& m : availableModels) {
+                        const bool selected = m == cfg.model;
+                        if (ImGui::Selectable(m.c_str(), selected)) {
+                            if (cfg.model != m) {
+                                cfg.model = m;
+                                startHealthCheck(false, false);
+                            }
+                        }
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+            } else {
+                ImGui::InputText("##model", &cfg.model);
+            }
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.55f, 0.82f, 1.0f, 1.0f),
-                "Last %.3f s", lastResponseSeconds);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Reset Prompt")) prompt = kDefaultPrompt;
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", status.c_str());
-        ImGui::TextDisabled("%s", benchmarkStatus.c_str());
+            if (ImGui::Button(
+                    loadingModels ? "Refreshing..." : "Refresh Models")) {
+                const Config capturedCfg = cfg;
+                loadingModels = true;
+                AppendActivityLog(
+                    appLog, "MODELS", "Manual model refresh started.");
+                startupConnectionSequence = false;
+                connectionStage = ConnectionStage::LoadingModels;
+                modelListRequest = std::async(
+                    std::launch::async,
+                    [capturedCfg] { return ListModels(capturedCfg); });
+            }
 
-        ImGui::TextColored(ImVec4(0.72f, 0.62f, 1.00f, 1.0f), "Compute");
-        ImGui::SameLine();
-        const char* computeItems[] = {"Auto", "GPU max", "CPU"};
-        ImGui::SetNextItemWidth(120);
-        ImGui::Combo("##compute", &cfg.computeMode, computeItems, 3);
-        ImGui::SameLine();
-        ImGui::BeginDisabled(applyingCompute || cfg.model.empty() || cfg.computeMode == 0);
-        if (ImGui::Button(applyingCompute ? "Applying..." : "Apply Compute")) {
-            const Config capturedCfg = cfg;
-            applyingCompute = true;
-            computeRequest = std::async(std::launch::async, [capturedCfg] { return ApplyComputeMode(capturedCfg); });
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("API key");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputText(
+                "##key", &cfg.apiKey, ImGuiInputTextFlags_Password);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("Actions");
+            ImGui::TableSetColumnIndex(1);
+            if (ImGui::Button("LM Studio")) {
+                cfg.endpoint =
+                    "http://127.0.0.1:1234/v1/chat/completions";
+                cfg.model = "google/gemma-4-e4b";
+                cfg.apiKey.clear();
+                health = "Not checked";
+                visionSupportKnown = false;
+                visionSupported = false;
+                visionStatus = "Not checked";
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(
+                checkingHealth || cfg.endpoint.empty());
+            if (ImGui::Button(
+                    checkingHealth ? "Checking..." : "Check Model")) {
+                startHealthCheck(false, true);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(
+                benchmarking || cfg.endpoint.empty() || cfg.model.empty());
+            if (ImGui::Button(
+                    benchmarking ? "Benchmarking..." : "Benchmark")) {
+                const Config capturedCfg = cfg;
+                benchmarking = true;
+                AppendActivityLog(
+                    appLog, "BENCH",
+                    "Manual benchmark started for " + cfg.model + ".");
+                startupConnectionSequence = false;
+                connectionStage = ConnectionStage::Benchmarking;
+                benchmarkStatus = "Benchmarking...";
+                benchmarkRequest = std::async(
+                    std::launch::async,
+                    [capturedCfg] { return Benchmark(capturedCfg); });
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Reset Prompt"))
+                prompt = kDefaultPrompt;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("Status");
+            ImGui::TableSetColumnIndex(1);
+            DrawStatusPill(connectionLabel, connectionColor);
+            ImGui::SameLine();
+            DrawStatusPill(visionPill.c_str(), visionColor);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", health.c_str());
+            if (lastResponseSeconds > 0.0) {
+                ImGui::SameLine();
+                ImGui::TextColored(
+                    ImVec4(0.55f, 0.82f, 1.0f, 1.0f),
+                    "Last %.3f s", lastResponseSeconds);
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("Runtime");
+            ImGui::TableSetColumnIndex(1);
+            const char* computeItems[] = {"Auto", "GPU max", "CPU"};
+            ImGui::SetNextItemWidth(120);
+            ImGui::Combo(
+                "##compute", &cfg.computeMode, computeItems, 3);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(
+                applyingCompute || cfg.model.empty() ||
+                cfg.computeMode == 0);
+            if (ImGui::Button(
+                    applyingCompute ? "Applying..." : "Apply Compute")) {
+                const Config capturedCfg = cfg;
+                applyingCompute = true;
+                computeRequest = std::async(
+                    std::launch::async,
+                    [capturedCfg] {
+                        return ApplyComputeMode(capturedCfg);
+                    });
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", computeStatus.c_str());
+            if (!benchmarkStatus.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("| %s", benchmarkStatus.c_str());
+            }
+            if (!status.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("| %s", status.c_str());
+            }
+
+            ImGui::EndTable();
         }
-        ImGui::EndDisabled();
-        ImGui::SameLine(); ImGui::TextDisabled("%s", computeStatus.c_str());
 
         ImGui::Spacing();
         ImGui::Separator();
