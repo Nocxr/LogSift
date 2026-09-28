@@ -2985,8 +2985,10 @@ int main(int argc, char** argv) {
                 status = "Input cleared.";
             }
 
-            const float inputEditorHeight =
-                std::max(120.0f, ImGui::GetContentRegionAvail().y - 62.0f);
+            const float paneActionReserve =
+                ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y;
+            const float inputEditorHeight = std::max(
+                120.0f, ImGui::GetContentRegionAvail().y - paneActionReserve);
             ImGui::InputTextMultiline("##input", &input, {-1, inputEditorHeight});
 
             const bool canSend =
@@ -3116,8 +3118,10 @@ int main(int argc, char** argv) {
 
             if (ImGui::BeginTabBar("##result_tabs")) {
                 if (ImGui::BeginTabItem("Included")) {
-                    const float resultHeight =
-                        std::max(100.0f, ImGui::GetContentRegionAvail().y - 38.0f);
+                    const float resultActionReserve =
+                        ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y;
+                    const float resultHeight = std::max(
+                        100.0f, ImGui::GetContentRegionAvail().y - resultActionReserve);
                     DrawDiagnosticEntries("##included_entries", output,
                         resultHeight, status, lastClipboardText, appLog, copyFlash);
                     ImGui::BeginDisabled(output.empty());
@@ -3151,7 +3155,7 @@ int main(int argc, char** argv) {
                         questionableLines, questionableWords,
                         questionableOutput.size());
                     const float questionableHeight =
-                        std::max(100.0f, ImGui::GetContentRegionAvail().y - 6.0f);
+                        std::max(100.0f, ImGui::GetContentRegionAvail().y);
                     DrawDiagnosticEntries("##questionable_entries",
                         questionableOutput, questionableHeight,
                         status, lastClipboardText, appLog, copyFlash);
