@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <iostream>
 #include <cmath>
+#include <atomic>
+#include <memory>
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
@@ -686,6 +688,12 @@ struct SiftResult {
     double completionTokensPerSecond = 0.0;
 };
 
+struct SiftProgress {
+    std::atomic<int> completed{0};
+    std::atomic<int> total{0};
+    std::atomic<bool> chunking{false};
+};
+
 const char* kDefaultPrompt =
     "You are a build/log filter preparing text for another coding model.\n\n"
     "- Return ONLY the minimum diagnostic payload needed to diagnose the failure.\n"
@@ -1296,12 +1304,46 @@ std::string FirstLocalDiagnostics(const std::string& input, const Config& cfg) {
     return fallbackKept ? DedupeLines(fallbackOut.str()) : "NO_DIAGNOSTICS";
 }
 
-SiftResult Send(const Config& cfg, const std::string& input, const std::string& prompt) {
-    std::string modelInput = PreFilter(input, cfg);
-    // Keep substantial headroom for tokenizers with poor bytes/token ratios and for
-    // the system/output budget. Diagnostics are already priority ordered locally.
-    constexpr size_t kMaxModelInputBytes = 12000;
-    if (modelInput.size() > kMaxModelInputBytes) modelInput.resize(kMaxModelInputBytes);
+std::vector<std::string> ChunkModelInput(const std::string& text, size_t maxBytes = 12000) {
+    std::vector<std::string> chunks;
+    if (text.empty()) return chunks;
+
+    std::istringstream in(text);
+    std::string line;
+    std::string current;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const size_t needed = line.size() + 1;
+        if (!current.empty() && current.size() + needed > maxBytes) {
+            chunks.push_back(std::move(current));
+            current.clear();
+        }
+        if (needed > maxBytes) {
+            size_t offset = 0;
+            while (offset < line.size()) {
+                const size_t take = std::min(maxBytes - 1, line.size() - offset);
+                chunks.push_back(line.substr(offset, take) + "\n");
+                offset += take;
+            }
+            continue;
+        }
+        current += line;
+        current += '\n';
+    }
+    if (!current.empty()) chunks.push_back(std::move(current));
+    return chunks;
+}
+
+size_t ModelChunkCountForInput(const std::string& input, const Config& cfg) {
+    return ChunkModelInput(PreFilter(input, cfg)).size();
+}
+
+SiftResult SendModelChunk(
+    const Config& cfg,
+    const std::string& modelInput,
+    const std::string& originalInput,
+    const std::string& prompt) {
+
     json body = {
         {"model", cfg.model},
         {"messages", json::array({
@@ -1314,14 +1356,15 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
                     : "")}}
         })},
         {"temperature", 0},
-        {"max_tokens", 1024}
+        {"max_tokens", 4096}
     };
 
     const auto temp = std::filesystem::temp_directory_path() /
-        ("logsift-" + std::to_string(SDL_GetTicks()) + ".json");
+        ("logsift-" + std::to_string(SDL_GetTicks()) + "-" +
+         std::to_string(std::hash<std::string>{}(modelInput)) + ".json");
     {
-        std::ofstream f(temp, std::ios::binary);
-        f << body.dump();
+        std::ofstream out(temp, std::ios::binary);
+        out << body.dump();
     }
 
     std::string cmd = "curl -sS --fail-with-body --max-time 120 -X POST " +
@@ -1332,118 +1375,232 @@ SiftResult Send(const Config& cfg, const std::string& input, const std::string& 
 
     std::string raw;
     try { raw = ReadPipe(cmd); }
-    catch (...) { std::error_code ec; std::filesystem::remove(temp, ec); throw; }
+    catch (...) {
+        std::error_code ec;
+        std::filesystem::remove(temp, ec);
+        throw;
+    }
     std::error_code ec;
     std::filesystem::remove(temp, ec);
 
     const json response = json::parse(raw);
-    if (response.contains("choices") && !response["choices"].empty()) {
-        const auto& choice = response["choices"][0];
-        const auto& message = choice["message"];
-        const std::string content = message.value("content", "");
-        std::string reasoning = message.value("reasoning_content", "");
-        if (reasoning.empty()) reasoning = message.value("reasoning", "");
-
-        SiftResult result;
-        if (!content.empty()) {
-            result.text = ExtractVerbatimModelDiagnostics(content, modelInput, input);
-            result.route = "LLM";
-        } else if (!reasoning.empty()) {
-            result.text = ExtractVerbatimModelDiagnostics(reasoning, modelInput, input);
-            result.route = "LLM reasoning extract";
-            result.note = "Model returned diagnostics through its reasoning channel.";
-        }
-
-        if (result.text.empty()) {
-            result.text = FirstLocalDiagnostics(input, cfg);
-            result.route = "Model fallback";
-            result.usedLocalFallback = true;
-            const std::string finishReason = choice.value("finish_reason", "");
-            if (!reasoning.empty() && finishReason == "length")
-                result.note = "Model used its response budget without returning usable final diagnostics.";
-            else if (!reasoning.empty())
-                result.note = "Model returned reasoning but no usable verbatim diagnostics.";
-            else if (!content.empty())
-                result.note = "Model response did not contain verbatim diagnostic lines.";
-            else
-                result.note = "Model returned no diagnostic content.";
-        }
-
-            // Collapse repeated Unreal diagnostics that differ only by timestamp.
-            if (LooksLikeUnrealLog(input) && result.text != "NO_DIAGNOSTICS") {
-                std::istringstream dedupeIn(result.text);
-                std::ostringstream dedupeOut;
-                std::unordered_set<std::string> signatures;
-                std::string line;
-                int emitted = 0;
-                while (std::getline(dedupeIn, line) && emitted < 12) {
-                    std::string signature = line;
-                    // Unreal timestamps often leave "] [0]" before the category. Normalize from
-                    // the actual category token so repeated diagnostics collapse across timestamps.
-                    size_t logPos = signature.find("LogHMD:");
-                    if (logPos == std::string::npos) logPos = signature.find("LogVulkanRHI:");
-                    if (logPos == std::string::npos) logPos = signature.find("LogRHI:");
-                    if (logPos == std::string::npos) logPos = signature.find("LogInit:");
-                    if (logPos == std::string::npos) logPos = signature.find("Log");
-                    if (logPos != std::string::npos) signature = signature.substr(logPos);
-                    // Normalize insignificant whitespace so timestamp/prefix formatting cannot
-                    // prevent identical Unreal messages from collapsing.
-                    signature.erase(std::remove_if(signature.begin(), signature.end(),
-                        [](unsigned char ch) { return ch == '\r'; }), signature.end());
-                    while (!signature.empty() && std::isspace(static_cast<unsigned char>(signature.back())))
-                        signature.pop_back();
-                    if (signatures.insert(signature).second) {
-                        dedupeOut << line << '\n';
-                        ++emitted;
-                    }
-                }
-                result.text = DedupeLines(dedupeOut.str());
-            }
-
-            if (LooksLikeUnrealLog(input) && result.text != "NO_DIAGNOSTICS") {
-                std::istringstream formatIn(result.text);
-                std::ostringstream formatOut;
-                std::string line;
-                std::unordered_set<std::string> groups;
-                while (std::getline(formatIn, line)) {
-                    std::string shown = line;
-                    size_t category = shown.find("Log");
-                    if (!cfg.showTimestamps && category != std::string::npos) shown = shown.substr(category);
-
-                    if (cfg.groupDiagnostics) {
-                        std::string key = shown;
-                        const size_t warningPos = key.find(": Warning:");
-                        const size_t errorPos = key.find(": Error:");
-                        const size_t severityPos = warningPos != std::string::npos ? warningPos : errorPos;
-                        if (severityPos != std::string::npos) {
-                            const size_t msg = severityPos + (warningPos != std::string::npos ? 10 : 8);
-                            const size_t colon = key.find(':', msg);
-                            const size_t equal = key.find('=', msg);
-                            const size_t cut = std::min(colon == std::string::npos ? key.size() : colon,
-                                                        equal == std::string::npos ? key.size() : equal);
-                            key = key.substr(0, cut);
-                        }
-                        if (!groups.insert(key).second) continue;
-                    }
-                    formatOut << shown << '\n';
-                }
-                result.text = DedupeLines(formatOut.str());
-            }
-        if (response.contains("usage")) {
-            const auto& usage = response["usage"];
-            result.promptTokens = usage.value("prompt_tokens", 0);
-            result.completionTokens = usage.value("completion_tokens", 0);
-        }
-        if (response.contains("stats")) {
-            const auto& responseStats = response["stats"];
-            result.promptTokensPerSecond = responseStats.value("prompt_tokens_per_second", 0.0);
-            result.completionTokensPerSecond = responseStats.value("tokens_per_second", 0.0);
-        }
-        return result;
-    }
     if (response.contains("error"))
         throw std::runtime_error(response["error"].dump(2));
-    throw std::runtime_error("Unexpected response:\n" + raw);
+    if (!response.contains("choices") || response["choices"].empty())
+        throw std::runtime_error("Unexpected model response: " + raw);
+
+    const auto& choice = response["choices"][0];
+    const auto& message = choice["message"];
+    const std::string content = message.value("content", "");
+    std::string reasoning = message.value("reasoning_content", "");
+    if (reasoning.empty()) reasoning = message.value("reasoning", "");
+
+    SiftResult result;
+    if (!content.empty()) {
+        result.text = ExtractVerbatimModelDiagnostics(content, modelInput, originalInput);
+        result.route = "LLM";
+    }
+    if (result.text.empty() && !reasoning.empty()) {
+        result.text = ExtractVerbatimModelDiagnostics(reasoning, modelInput, originalInput);
+        result.route = "LLM reasoning extract";
+        if (!result.text.empty())
+            result.note = "Model returned diagnostics through its reasoning channel.";
+    }
+
+    if (result.text.empty()) {
+        // Endpoint/model responded successfully, but strict verbatim extraction could
+        // not use the response. This is a model-response fallback, never "offline".
+        std::istringstream localIn(modelInput);
+        std::ostringstream localOut;
+        std::string localLine;
+        int kept = 0;
+        while (std::getline(localIn, localLine) && kept < 12) {
+            if (!localLine.empty()) {
+                localOut << localLine << '\n';
+                ++kept;
+            }
+        }
+        result.text = kept ? DedupeLines(localOut.str()) : "NO_DIAGNOSTICS";
+        result.route = "Model fallback";
+        result.usedLocalFallback = true;
+        const std::string finishReason = choice.value("finish_reason", "");
+        if (!reasoning.empty() && finishReason == "length")
+            result.note = "Model used its response budget without returning usable final diagnostics.";
+        else if (!reasoning.empty())
+            result.note = "Model returned reasoning but no usable verbatim diagnostics.";
+        else if (!content.empty())
+            result.note = "Model response did not contain verbatim diagnostic lines.";
+        else
+            result.note = "Model returned no diagnostic content.";
+    }
+
+    if (response.contains("usage")) {
+        const auto& usage = response["usage"];
+        result.promptTokens = usage.value("prompt_tokens", 0);
+        result.completionTokens = usage.value("completion_tokens", 0);
+    }
+    if (response.contains("stats")) {
+        const auto& responseStats = response["stats"];
+        result.promptTokensPerSecond = responseStats.value("prompt_tokens_per_second", 0.0);
+        result.completionTokensPerSecond = responseStats.value("tokens_per_second", 0.0);
+    }
+    return result;
+}
+
+std::string LimitDiagnosticLines(const std::string& text, int maxLines = 12) {
+    std::istringstream in(DedupeLines(text));
+    std::ostringstream out;
+    std::string line;
+    int kept = 0;
+    while (std::getline(in, line) && kept < maxLines) {
+        if (line.empty()) continue;
+        out << line << '\n';
+        ++kept;
+    }
+    return out.str();
+}
+
+std::string FinalizeModelText(std::string text, const std::string& input, const Config& cfg) {
+    text = DedupeLines(text);
+    if (text == "NO_DIAGNOSTICS\n" || text == "NO_DIAGNOSTICS") return "NO_DIAGNOSTICS";
+
+    if (LooksLikeUnrealLog(input)) {
+        std::istringstream dedupeIn(text);
+        std::ostringstream dedupeOut;
+        std::unordered_set<std::string> signatures;
+        std::string line;
+        while (std::getline(dedupeIn, line)) {
+            std::string signature = line;
+            size_t logPos = signature.find("Log");
+            if (logPos != std::string::npos) signature = signature.substr(logPos);
+            while (!signature.empty() && std::isspace(static_cast<unsigned char>(signature.back())))
+                signature.pop_back();
+            if (signatures.insert(signature).second) dedupeOut << line << '\n';
+        }
+        text = DedupeLines(dedupeOut.str());
+
+        std::istringstream formatIn(text);
+        std::ostringstream formatOut;
+        std::unordered_set<std::string> groups;
+        while (std::getline(formatIn, line)) {
+            std::string shown = line;
+            const size_t category = shown.find("Log");
+            if (!cfg.showTimestamps && category != std::string::npos)
+                shown = shown.substr(category);
+
+            if (cfg.groupDiagnostics) {
+                std::string key = shown;
+                const size_t warningPos = key.find(": Warning:");
+                const size_t errorPos = key.find(": Error:");
+                const size_t severityPos =
+                    warningPos != std::string::npos ? warningPos : errorPos;
+                if (severityPos != std::string::npos) {
+                    const size_t msg =
+                        severityPos + (warningPos != std::string::npos ? 10 : 8);
+                    const size_t colon = key.find(':', msg);
+                    const size_t equal = key.find('=', msg);
+                    const size_t cut = std::min(
+                        colon == std::string::npos ? key.size() : colon,
+                        equal == std::string::npos ? key.size() : equal);
+                    key = key.substr(0, cut);
+                }
+                if (!groups.insert(key).second) continue;
+            }
+            formatOut << shown << '\n';
+        }
+        text = DedupeLines(formatOut.str());
+    }
+    return LimitDiagnosticLines(text, 12);
+}
+
+SiftResult Send(
+    const Config& cfg,
+    const std::string& input,
+    const std::string& prompt,
+    const std::shared_ptr<SiftProgress>& progress = nullptr) {
+
+    const std::string filtered = PreFilter(input, cfg);
+    if (filtered.empty()) {
+        SiftResult empty;
+        empty.text = "NO_DIAGNOSTICS";
+        empty.route = "Local prefilter";
+        return empty;
+    }
+
+    std::vector<std::string> chunks = ChunkModelInput(filtered);
+    if (progress) {
+        progress->completed = 0;
+        progress->total = static_cast<int>(chunks.size());
+        progress->chunking = chunks.size() > 1;
+    }
+
+    SiftResult combined;
+    combined.route = chunks.size() > 1 ? "LLM chunked" : "LLM";
+    std::ostringstream selected;
+    bool anyFallback = false;
+    std::string fallbackNote;
+
+    auto runChunk = [&](const std::string& chunk) {
+        SiftResult piece = SendModelChunk(cfg, chunk, input, prompt);
+        combined.promptTokens += piece.promptTokens;
+        combined.completionTokens += piece.completionTokens;
+        if (piece.promptTokensPerSecond > 0.0)
+            combined.promptTokensPerSecond = piece.promptTokensPerSecond;
+        if (piece.completionTokensPerSecond > 0.0)
+            combined.completionTokensPerSecond = piece.completionTokensPerSecond;
+        if (piece.usedLocalFallback) {
+            anyFallback = true;
+            if (fallbackNote.empty()) fallbackNote = piece.note;
+        }
+        if (piece.text != "NO_DIAGNOSTICS" && piece.text != "NO_DIAGNOSTICS\n")
+            selected << piece.text;
+        if (progress) ++progress->completed;
+    };
+
+    for (const auto& chunk : chunks) runChunk(chunk);
+
+    std::string aggregate = DedupeLines(selected.str());
+    if (aggregate.empty()) aggregate = "NO_DIAGNOSTICS";
+
+    // Hierarchical reduction for very large candidate sets. Each stage is bounded
+    // to the same model-safe chunk size, so arbitrary-size logs are never silently truncated.
+    for (int pass = 0; pass < 3 && aggregate != "NO_DIAGNOSTICS"; ++pass) {
+        const auto entries = DiagnosticEntries(aggregate);
+        if (entries.size() <= 12 && aggregate.size() <= 12000) break;
+
+        std::vector<std::string> reduceChunks = ChunkModelInput(aggregate);
+        if (progress) {
+            progress->chunking = true;
+            progress->total += static_cast<int>(reduceChunks.size());
+        }
+
+        std::ostringstream reduced;
+        for (const auto& chunk : reduceChunks) {
+            SiftResult piece = SendModelChunk(cfg, chunk, input, prompt);
+            combined.promptTokens += piece.promptTokens;
+            combined.completionTokens += piece.completionTokens;
+            if (piece.usedLocalFallback) {
+                anyFallback = true;
+                if (fallbackNote.empty()) fallbackNote = piece.note;
+            }
+            if (piece.text != "NO_DIAGNOSTICS" && piece.text != "NO_DIAGNOSTICS\n")
+                reduced << piece.text;
+            if (progress) ++progress->completed;
+        }
+        const std::string next = DedupeLines(reduced.str());
+        if (next.empty() || next == aggregate) break;
+        aggregate = next;
+    }
+
+    combined.text = FinalizeModelText(aggregate, input, cfg);
+    combined.usedLocalFallback = anyFallback;
+    if (chunks.size() > 1)
+        combined.route = anyFallback ? "Chunked model fallback" : "LLM chunked";
+    else if (anyFallback)
+        combined.route = "Model fallback";
+
+    combined.note = fallbackNote;
+    return combined;
 }
 
 bool LoadFile(const char* path, std::string& input, std::string& status) {
