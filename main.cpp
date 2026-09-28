@@ -3358,6 +3358,8 @@ int main(int argc, char** argv) {
                             }
                         }
                     } else {
+                        if (toastOutcome == ToastOutcome::Cancelled)
+                            contentHeight += 12; // keep scan-style separator/action spacing
                         if (cfg.resultShowDiagnosticTotal) contentHeight += 22;
                         if (cfg.resultShowFallbackNotice &&
                             (toastOutcome == ToastOutcome::OfflineFallback ||
@@ -3475,7 +3477,25 @@ int main(int argc, char** argv) {
                     toastOutcome == ToastOutcome::ModelFallback ? "LOG SIFT - MODEL RESPONSE FALLBACK" :
                     toastOutcome == ToastOutcome::Cancelled ? "LOG SIFT - CANCELLED" :
                     toastOutcome == ToastOutcome::Failure ? "LOG SIFT - FAILED" : "LOG SIFT";
+                const float titleY = ImGui::GetCursorPosY();
                 ImGui::TextColored(outcomeColor, "%s", outcomeLabel);
+
+                const float closeSize = 22.0f;
+                ImGui::SetCursorPos(ImVec2(
+                    ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - closeSize,
+                    std::max(0.0f, titleY - 3.0f)));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f,0.12f,0.12f,0.85f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f,0.12f,0.12f,1.0f));
+                if (ImGui::Button("X##toast_close", ImVec2(closeSize, closeSize))) {
+                    AppendActivityLog(appLog, "UI",
+                        toastProcessing
+                            ? "Scanning notification hidden; sift continues."
+                            : "Notification closed.");
+                    toastText.clear();
+                }
+                ImGui::PopStyleColor(3);
+                ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), titleY + ImGui::GetTextLineHeightWithSpacing()));
 
                 if (toastProcessing) {
                     const double elapsed = std::chrono::duration<double>(
@@ -3509,7 +3529,7 @@ int main(int argc, char** argv) {
                         ToastDisclosureRow("scan_stats", "Stats", toastStatsExpanded, outcomeColor);
                         if (toastStatsExpanded && ImGui::BeginTable("##scan_popup_stats", 2,
                             ImGuiTableFlags_SizingStretchProp)) {
-                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 94.0f);
+                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 102.0f);
                             ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
 
                             if (cfg.scanShowSource) {
@@ -3618,7 +3638,7 @@ int main(int argc, char** argv) {
                     if (hasResultStats && toastStatsExpanded &&
                         ImGui::BeginTable("##result_popup_stats", 2,
                             ImGuiTableFlags_SizingStretchProp)) {
-                        ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 94.0f);
+                        ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 102.0f);
                         ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
 
                         if (cfg.resultShowSource) {
@@ -3780,6 +3800,19 @@ int main(int argc, char** argv) {
                     ImGui::SameLine(0.0f, gap);
                     if (ImGui::Button("Cancel", {cancelW, buttonH}))
                         cancelActiveSift("notification");
+                } else if (toastOutcome == ToastOutcome::Cancelled) {
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    const float totalW = openW + dismissW + gap;
+                    ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
+                        ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
+                    if (ImGui::Button("Open", {openW, buttonH})) {
+                        reopenMainWindow();
+                        toastText.clear();
+                    }
+                    ImGui::SameLine(0.0f, gap);
+                    if (ImGui::Button("Dismiss", {dismissW, buttonH}))
+                        toastText.clear();
                 } else {
                     const float totalW = openW + copyW + dismissW + gap * 2.0f;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
