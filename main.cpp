@@ -332,6 +332,7 @@ struct Config {
     bool resultShowAutoCopy = true;
     bool resultShowCounts = true;
     bool resultShowPreview = true;
+    bool resultShowLifetimeBar = true;
 
     int toastPreviewLines = 3;
     bool toastAcknowledgeClipboard = false;
@@ -471,6 +472,7 @@ json ConfigToJson(const Config& cfg) {
         {"popup_result_show_auto_copy", cfg.resultShowAutoCopy},
         {"popup_result_show_counts", cfg.resultShowCounts},
         {"popup_result_show_preview", cfg.resultShowPreview},
+        {"popup_result_show_lifetime_bar", cfg.resultShowLifetimeBar},
 
         {"toast_preview_lines", cfg.toastPreviewLines},
         {"toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard},
@@ -530,6 +532,7 @@ void LoadConfig(Config& cfg) {
         cfg.resultShowAutoCopy = j.value("popup_result_show_auto_copy", true);
         cfg.resultShowCounts = j.value("popup_result_show_counts", cfg.toastShowCounts);
         cfg.resultShowPreview = j.value("popup_result_show_preview", cfg.toastShowPreview);
+        cfg.resultShowLifetimeBar = j.value("popup_result_show_lifetime_bar", true);
 
         cfg.toastPreviewLines = std::clamp(j.value("toast_preview_lines", cfg.toastPreviewLines), 1, 10);
         cfg.toastAcknowledgeClipboard = j.value("toast_acknowledge_clipboard", cfg.toastAcknowledgeClipboard);
@@ -3140,6 +3143,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextColumn(); ImGui::Checkbox("Auto-copy banner##result", &cfg.resultShowAutoCopy);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Included / questionable##result", &cfg.resultShowCounts);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Diagnostic preview##result", &cfg.resultShowPreview);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Dismiss timer bar##result", &cfg.resultShowLifetimeBar);
                     ImGui::EndTable();
                 }
                 ImGui::SetNextItemWidth(110);
