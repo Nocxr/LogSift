@@ -315,6 +315,8 @@ struct Config {
     bool toastShowPreview = true;
 
     bool scanShowSource = true;
+    bool scanShowModel = true;
+    bool scanShowRoute = true;
     bool scanShowProgress = true;
     bool scanShowPrefilterCounts = true;
     bool scanShowEstimatedTokens = true;
@@ -323,10 +325,13 @@ struct Config {
 
     bool resultShowDiagnosticTotal = true;
     bool resultShowSource = true;
+    bool resultShowModel = true;
+    bool resultShowRoute = true;
     bool resultShowFallbackNotice = true;
     bool resultShowPrefilterCounts = true;
     bool resultShowEstimatedTokens = true;
     bool resultShowRealTokens = true;
+    bool resultShowTokenSpeed = true;
     bool resultShowBytesReduction = true;
     bool resultShowTime = true;
     bool resultShowAutoCopy = true;
@@ -455,6 +460,8 @@ json ConfigToJson(const Config& cfg) {
         {"toast_show_preview", cfg.toastShowPreview},
 
         {"popup_scan_show_source", cfg.scanShowSource},
+        {"popup_scan_show_model", cfg.scanShowModel},
+        {"popup_scan_show_route", cfg.scanShowRoute},
         {"popup_scan_show_progress", cfg.scanShowProgress},
         {"popup_scan_show_prefilter_counts", cfg.scanShowPrefilterCounts},
         {"popup_scan_show_estimated_tokens", cfg.scanShowEstimatedTokens},
@@ -463,10 +470,13 @@ json ConfigToJson(const Config& cfg) {
 
         {"popup_result_show_diagnostic_total", cfg.resultShowDiagnosticTotal},
         {"popup_result_show_source", cfg.resultShowSource},
+        {"popup_result_show_model", cfg.resultShowModel},
+        {"popup_result_show_route", cfg.resultShowRoute},
         {"popup_result_show_fallback_notice", cfg.resultShowFallbackNotice},
         {"popup_result_show_prefilter_counts", cfg.resultShowPrefilterCounts},
         {"popup_result_show_estimated_tokens", cfg.resultShowEstimatedTokens},
         {"popup_result_show_real_tokens", cfg.resultShowRealTokens},
+        {"popup_result_show_token_speed", cfg.resultShowTokenSpeed},
         {"popup_result_show_bytes_reduction", cfg.resultShowBytesReduction},
         {"popup_result_show_time", cfg.resultShowTime},
         {"popup_result_show_auto_copy", cfg.resultShowAutoCopy},
@@ -515,6 +525,8 @@ void LoadConfig(Config& cfg) {
         cfg.toastShowPreview = j.value("toast_show_preview", cfg.toastShowPreview);
 
         cfg.scanShowSource = j.value("popup_scan_show_source", cfg.toastShowType);
+        cfg.scanShowModel = j.value("popup_scan_show_model", true);
+        cfg.scanShowRoute = j.value("popup_scan_show_route", true);
         cfg.scanShowProgress = j.value("popup_scan_show_progress", true);
         cfg.scanShowPrefilterCounts = j.value("popup_scan_show_prefilter_counts", cfg.toastShowBytes);
         cfg.scanShowEstimatedTokens = j.value("popup_scan_show_estimated_tokens", cfg.toastShowBytes);
@@ -523,10 +535,13 @@ void LoadConfig(Config& cfg) {
 
         cfg.resultShowDiagnosticTotal = j.value("popup_result_show_diagnostic_total", true);
         cfg.resultShowSource = j.value("popup_result_show_source", cfg.toastShowType);
+        cfg.resultShowModel = j.value("popup_result_show_model", true);
+        cfg.resultShowRoute = j.value("popup_result_show_route", true);
         cfg.resultShowFallbackNotice = j.value("popup_result_show_fallback_notice", true);
         cfg.resultShowPrefilterCounts = j.value("popup_result_show_prefilter_counts", cfg.toastShowBytes);
         cfg.resultShowEstimatedTokens = j.value("popup_result_show_estimated_tokens", cfg.toastShowBytes);
         cfg.resultShowRealTokens = j.value("popup_result_show_real_tokens", cfg.toastShowBytes);
+        cfg.resultShowTokenSpeed = j.value("popup_result_show_token_speed", true);
         cfg.resultShowBytesReduction = j.value("popup_result_show_bytes_reduction", cfg.toastShowBytes);
         cfg.resultShowTime = j.value("popup_result_show_time", cfg.toastShowTime);
         cfg.resultShowAutoCopy = j.value("popup_result_show_auto_copy", true);
@@ -3162,6 +3177,8 @@ int main(int argc, char** argv) {
                 ImGui::TextColored(ImVec4(0.35f, 0.75f, 1.0f, 1.0f), "Scanning");
                 if (ImGui::BeginTable("##scan_popup_content", 3, ImGuiTableFlags_SizingStretchSame)) {
                     ImGui::TableNextColumn(); ImGui::Checkbox("Source / log type##scan", &cfg.scanShowSource);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Model##scan", &cfg.scanShowModel);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Route / compute##scan", &cfg.scanShowRoute);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Progress / chunking##scan", &cfg.scanShowProgress);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Lines / words##scan", &cfg.scanShowPrefilterCounts);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Estimated tokens##scan", &cfg.scanShowEstimatedTokens);
@@ -3175,10 +3192,13 @@ int main(int argc, char** argv) {
                 if (ImGui::BeginTable("##result_popup_content", 3, ImGuiTableFlags_SizingStretchSame)) {
                     ImGui::TableNextColumn(); ImGui::Checkbox("Diagnostic total##result", &cfg.resultShowDiagnosticTotal);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Source / log type##result", &cfg.resultShowSource);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Model##result", &cfg.resultShowModel);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Route / compute##result", &cfg.resultShowRoute);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Fallback notice##result", &cfg.resultShowFallbackNotice);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Lines / words##result", &cfg.resultShowPrefilterCounts);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Estimated tokens##result", &cfg.resultShowEstimatedTokens);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Real LLM tokens##result", &cfg.resultShowRealTokens);
+                    ImGui::TableNextColumn(); ImGui::Checkbox("Token speed##result", &cfg.resultShowTokenSpeed);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Bytes / reduction##result", &cfg.resultShowBytesReduction);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Completed time##result", &cfg.resultShowTime);
                     ImGui::TableNextColumn(); ImGui::Checkbox("Auto-copy banner##result", &cfg.resultShowAutoCopy);
