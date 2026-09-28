@@ -1843,9 +1843,11 @@ int main(int argc, char** argv) {
     if (!std::filesystem::exists(SettingsPath())) SaveConfig(cfg);
 #ifdef _WIN32
     gTrayWatchEnabled = cfg.watchClipboard;
+    gTrayAutoCopyEnabled = cfg.autoCopyResults;
     bool startAtLogin = WindowsGetStartAtLogin();
 #elif defined(__APPLE__)
     LogSiftMacTraySetWatch(cfg.watchClipboard);
+    LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
     bool startAtLogin = LogSiftMacGetStartAtLogin();
 #else
     bool startAtLogin = false;
@@ -1977,6 +1979,17 @@ int main(int argc, char** argv) {
             status=cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
             AppendActivityLog(appLog, "WATCH", status);
         }
+        if (LogSiftMacTrayTakeToggleAutoCopy()) {
+            cfg.autoCopyResults = !cfg.autoCopyResults;
+            LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
+            status = cfg.autoCopyResults ? "Auto copy enabled." : "Auto copy disabled.";
+            AppendActivityLog(appLog, "AUTO-COPY", status);
+        }
+        if (LogSiftMacTrayTakeOpenLog()) {
+            reopenMainWindow();
+            showAppLog = true;
+            AppendActivityLog(appLog, "UI", "Activity log opened from macOS menu bar.");
+        }
         if (LogSiftMacTrayTakeCopy() && !output.empty()) {
             SetOwnedClipboardText(output, &lastClipboardText);
             status="Result copied from menu bar.";
@@ -1998,13 +2011,24 @@ int main(int argc, char** argv) {
             gTrayWatchToggleRequested = false;
             cfg.watchClipboard = !cfg.watchClipboard;
             gTrayWatchEnabled = cfg.watchClipboard;
-#ifdef _WIN32
             lastClipboardSequence = GetClipboardSequenceNumber();
             gClipboardUpdatePending = false;
-#endif
             lastClipboardText.clear();
             status = cfg.watchClipboard ? "Clipboard watch enabled." : "Clipboard watch disabled.";
             AppendActivityLog(appLog, "WATCH", status);
+        }
+        if (gTrayAutoCopyToggleRequested) {
+            gTrayAutoCopyToggleRequested = false;
+            cfg.autoCopyResults = !cfg.autoCopyResults;
+            gTrayAutoCopyEnabled = cfg.autoCopyResults;
+            status = cfg.autoCopyResults ? "Auto copy enabled." : "Auto copy disabled.";
+            AppendActivityLog(appLog, "AUTO-COPY", status);
+        }
+        if (gTrayOpenLogRequested) {
+            gTrayOpenLogRequested = false;
+            reopenMainWindow();
+            showAppLog = true;
+            AppendActivityLog(appLog, "UI", "Activity log opened from Windows tray.");
         }
         if (gTrayCopyRequested) {
             gTrayCopyRequested = false;
@@ -2025,7 +2049,9 @@ int main(int argc, char** argv) {
         const bool asyncNow = busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool toastNow = !toastText.empty() && (toastProcessing || std::chrono::steady_clock::now() < toastUntil);
         if (hiddenNow && !asyncNow && !toastNow && !gClipboardUpdatePending &&
-            !gTrayRestoreRequested && !gTrayWatchToggleRequested && !gTrayCopyRequested && !gTrayExitRequested) {
+            !gTrayRestoreRequested && !gTrayWatchToggleRequested &&
+            !gTrayAutoCopyToggleRequested && !gTrayOpenLogRequested &&
+            !gTrayCopyRequested && !gTrayExitRequested) {
             MsgWaitForMultipleObjectsEx(0, nullptr, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
             continue;
         }
@@ -2867,7 +2893,15 @@ int main(int argc, char** argv) {
                         AppendActivityLog(appLog, "SETTINGS", status);
                     }
                 }
-                ImGui::Checkbox("Auto-copy actionable results", &cfg.autoCopyResults);
+                if (ImGui::Checkbox("Auto-copy actionable results", &cfg.autoCopyResults)) {
+#ifdef _WIN32
+                    gTrayAutoCopyEnabled = cfg.autoCopyResults;
+#elif defined(__APPLE__)
+                    LogSiftMacTraySetAutoCopy(cfg.autoCopyResults);
+#endif
+                    AppendActivityLog(appLog, "AUTO-COPY",
+                        cfg.autoCopyResults ? "Auto copy enabled from Settings." : "Auto copy disabled from Settings.");
+                }
                 ImGui::SameLine();
                 ImGui::TextDisabled("Copies only when Log Sift found diagnostics; never copies NO_DIAGNOSTICS/empty results.");
                 ImGui::TextDisabled("Settings: %s", SettingsPath().string().c_str());
