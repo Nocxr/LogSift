@@ -1901,6 +1901,7 @@ int main(int argc, char** argv) {
 
     std::string input, output, questionableOutput, prompt = kDefaultPrompt, status = "Paste text or drop a log file.";
     std::string appLog;
+    CopyFlashState copyFlash;
     AppendActivityLog(appLog, "INFO", "Log Sift started.");
     AppendActivityLog(appLog, "CONFIG", "Endpoint: " + cfg.endpoint + " | Model: " + cfg.model);
     AppendActivityLog(appLog, "CONFIG", std::string("Clipboard watch: ") + (cfg.watchClipboard ? "on" : "off"));
@@ -2188,6 +2189,8 @@ int main(int argc, char** argv) {
                         stats.inputWords = words;
                         stats.filteredLines = 0;
                         stats.filteredWords = 0;
+                        stats.estimatedInputTokens = EstimateTokenCount(input);
+                        stats.estimatedFilteredTokens = 0;
                     }
                     stats.seconds = 0.0;
                     stats.route = "Local prefilter";
@@ -2218,6 +2221,8 @@ int main(int argc, char** argv) {
                         stats.inputWords = inputWordCount;
                         stats.filteredLines = filteredLineCount;
                         stats.filteredWords = filteredWordCount;
+                        stats.estimatedInputTokens = EstimateTokenCount(input);
+                        stats.estimatedFilteredTokens = EstimateTokenCount(previewFiltered);
                     }
                     stats.route = (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
                     requestStarted = now;
@@ -2376,6 +2381,7 @@ int main(int argc, char** argv) {
                         const auto [filteredLineCount, filteredWordCount] = HumanTextStats(fallbackCandidate);
                         stats.filteredLines = filteredLineCount;
                         stats.filteredWords = filteredWordCount;
+                        stats.estimatedFilteredTokens = EstimateTokenCount(fallbackCandidate);
                     }
                     stats.route = endpointUnavailable ? "Offline fallback" : "Model fallback";
                     stats.promptTokens = 0;
@@ -2778,6 +2784,8 @@ int main(int argc, char** argv) {
                     stats.inputWords = inputWordCount;
                     stats.filteredLines = filteredLineCount;
                     stats.filteredWords = filteredWordCount;
+                    stats.estimatedInputTokens = EstimateTokenCount(input);
+                    stats.estimatedFilteredTokens = EstimateTokenCount(previewFiltered);
                 }
                 stats.route =
                     (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered))
@@ -2876,11 +2884,13 @@ int main(int argc, char** argv) {
                     const float resultHeight =
                         std::max(100.0f, ImGui::GetContentRegionAvail().y - 38.0f);
                     DrawDiagnosticEntries("##included_entries", output,
-                        resultHeight, status, lastClipboardText, appLog);
+                        resultHeight, status, lastClipboardText, appLog, copyFlash);
                     ImGui::BeginDisabled(output.empty());
                     if (ImGui::Button("Copy Result")) {
-                        SetOwnedClipboardText(output, &lastClipboardText);
-                        AppendActivityLog(appLog, "COPY", "Result copied from main window.");
+                        if (SetOwnedClipboardText(output, &lastClipboardText)) {
+                            StartCopyFlash(copyFlash, true);
+                            AppendActivityLog(appLog, "COPY", "Result copied from main window.");
+                        }
                     }
                     ImGui::EndDisabled();
                     ImGui::SameLine();
@@ -2909,7 +2919,7 @@ int main(int argc, char** argv) {
                         std::max(100.0f, ImGui::GetContentRegionAvail().y - 6.0f);
                     DrawDiagnosticEntries("##questionable_entries",
                         questionableOutput, questionableHeight,
-                        status, lastClipboardText, appLog);
+                        status, lastClipboardText, appLog, copyFlash);
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
@@ -3184,6 +3194,9 @@ int main(int argc, char** argv) {
                         "Prefilter: %zu -> %zu lines  |  %zu -> %zu words",
                         stats.inputLines, stats.filteredLines,
                         stats.inputWords, stats.filteredWords);
+                    ImGui::TextDisabled(
+                        "Tokens: ~%zu -> ~%zu estimated",
+                        stats.estimatedInputTokens, stats.estimatedFilteredTokens);
                     const double scanReduced = stats.inputBytes > 0
                         ? 100.0 * (1.0 -
                             static_cast<double>(stats.filteredBytes) /
@@ -3231,6 +3244,15 @@ int main(int argc, char** argv) {
                             "%zu -> %zu lines  |  %zu -> %zu words",
                             stats.inputLines, stats.filteredLines,
                             stats.inputWords, stats.filteredWords);
+                        ImGui::TextDisabled(
+                            "Prefilter tokens: ~%zu -> ~%zu estimated",
+                            stats.estimatedInputTokens, stats.estimatedFilteredTokens);
+                        if (stats.promptTokens > 0 || stats.completionTokens > 0) {
+                            ImGui::TextColored(
+                                ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
+                                "LLM usage: %d prompt + %d output tokens (real)",
+                                stats.promptTokens, stats.completionTokens);
+                        }
                     }
 
                     if (cfg.toastShowBytes && stats.inputBytes > 0) {
