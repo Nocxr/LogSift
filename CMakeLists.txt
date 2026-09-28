@@ -12,13 +12,25 @@ endif()
 
 include(FetchContent)
 
+# Keep SDL self-contained and quiet. We still compile Log Sift itself with
+# strict warnings below; these settings only avoid third-party SDK noise.
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG release-3.2.10
+    GIT_TAG release-3.4.16
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(SDL3)
+
+if(APPLE)
+    foreach(_sdl_target SDL3-static SDL3-shared)
+        if(TARGET ${_sdl_target})
+            target_compile_options(${_sdl_target} PRIVATE -Wno-deprecated-declarations)
+        endif()
+    endforeach()
+endif()
 
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -47,8 +59,19 @@ target_include_directories(logsift_imgui PUBLIC
 target_link_libraries(logsift_imgui PUBLIC SDL3::SDL3)
 
 add_executable(logsift main.cpp)
+
 if(APPLE)
+    set_target_properties(logsift PROPERTIES
+        MACOSX_BUNDLE TRUE
+        OUTPUT_NAME "Log Sift"
+        MACOSX_BUNDLE_BUNDLE_NAME "Log Sift"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.nocxr.logsift"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in")
     target_sources(logsift PRIVATE mac_tray.mm)
+    target_compile_options(logsift PRIVATE
+        $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 endif()
 
 target_link_libraries(logsift PRIVATE
