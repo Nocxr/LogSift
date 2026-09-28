@@ -1772,6 +1772,22 @@ std::vector<std::string> DiagnosticEntries(const std::string& text) {
     return entries;
 }
 
+bool ToastDisclosureRow(const char* id, const char* label, bool& expanded, const ImVec4& accent) {
+    ImGui::PushID(id);
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(accent.x, accent.y, accent.z, 0.10f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(accent.x, accent.y, accent.z, 0.18f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(accent.x, accent.y, accent.z, 0.24f));
+
+    std::string text = expanded ? "[-] " : "[+] ";
+    text += label;
+    if (ImGui::Selectable(text.c_str(), false, ImGuiSelectableFlags_None, ImVec2(-1.0f, 22.0f)))
+        expanded = !expanded;
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopID();
+    return expanded;
+}
+
 struct CopyFlashState {
     std::chrono::steady_clock::time_point until{};
     size_t entryHash = 0;
@@ -1986,6 +2002,8 @@ int main(int argc, char** argv) {
     bool toastProcessing = false;
     bool toastSoundPlayed = false;
     bool toastAutoCopied = false;
+    bool toastStatsExpanded = true;
+    bool toastPreviewExpanded = true;
     enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Cancelled, Failure };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
@@ -3203,49 +3221,97 @@ int main(int argc, char** argv) {
 
         if (toastContext && toastWindow && toastRenderer) {
             if (toastActive) {
-                const bool toastWasHidden = (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_HIDDEN) != 0;
-                if (toastWasHidden) {
-                    int displayCount = 0;
-                    SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
-                    SDL_DisplayID display = (displays && displayCount > 0) ? displays[0] : 0;
-                    SDL_Rect usable{};
-                    if (display && SDL_GetDisplayUsableBounds(display, &usable)) {
-                        const int tw = 460;
-                        const bool sizingChunking =
-                            toastProcessing && activeProgress && activeProgress->chunking.load();
-                        int contentHeight = 112; // title, spacing, action row
-                        if (toastProcessing) {
-                            if (cfg.scanShowSource) contentHeight += 20;
-                            if (cfg.scanShowProgress) contentHeight += sizingChunking ? 54 : 30;
-                            if (cfg.scanShowPrefilterCounts) contentHeight += 20;
-                            if (cfg.scanShowEstimatedTokens) contentHeight += 20;
-                            if (cfg.scanShowBytesReduction) contentHeight += 20;
-                            if (cfg.scanShowElapsedTime) contentHeight += 20;
-                        } else {
-                            if (cfg.resultShowDiagnosticTotal) contentHeight += 20;
-                            if (cfg.resultShowSource) contentHeight += 20;
-                            if (cfg.resultShowFallbackNotice &&
-                                (toastOutcome == ToastOutcome::OfflineFallback ||
-                                 toastOutcome == ToastOutcome::ModelFallback))
-                                contentHeight += 52;
-                            if (cfg.resultShowPrefilterCounts) contentHeight += 20;
-                            if (cfg.resultShowEstimatedTokens) contentHeight += 20;
-                            if (cfg.resultShowRealTokens &&
-                                (stats.promptTokens > 0 || stats.completionTokens > 0))
-                                contentHeight += 20;
-                            if (cfg.resultShowBytesReduction) contentHeight += 20;
-                            if (cfg.resultShowTime) contentHeight += 20;
-                            if (cfg.resultShowAutoCopy && toastAutoCopied) contentHeight += 32;
-                            if (cfg.resultShowCounts) contentHeight += 20;
-                            if (cfg.resultShowPreview && !output.empty())
-                                contentHeight += 18 + std::clamp(cfg.toastPreviewLines, 1, 10) * 22;
-                            if (cfg.resultShowLifetimeBar) contentHeight += 12;
+                const bool toastWasHidden =
+                    (SDL_GetWindowFlags(toastWindow) & SDL_WINDOW_HIDDEN) != 0;
+
+                int displayCount = 0;
+                SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
+                SDL_DisplayID display = (displays && displayCount > 0) ? displays[0] : 0;
+                SDL_Rect usable{};
+                if (display && SDL_GetDisplayUsableBounds(display, &usable)) {
+                    const int tw = 460;
+                    const bool sizingChunking =
+                        toastProcessing && activeProgress && activeProgress->chunking.load();
+
+                    int contentHeight = 126; // title + padding + pinned action row
+                    if (toastProcessing) {
+                        if (cfg.scanShowProgress)
+                            contentHeight += sizingChunking ? 54 : 34;
+
+                        const bool hasScanStats =
+                            cfg.scanShowSource || cfg.scanShowPrefilterCounts ||
+                            cfg.scanShowEstimatedTokens || cfg.scanShowBytesReduction ||
+                            cfg.scanShowElapsedTime;
+                        if (hasScanStats) {
+                            contentHeight += 28; // Stats disclosure row
+                            if (toastStatsExpanded) {
+                                if (cfg.scanShowSource) contentHeight += 22;
+                                if (cfg.scanShowPrefilterCounts) contentHeight += 22;
+                                if (cfg.scanShowEstimatedTokens) contentHeight += 22;
+                                if (cfg.scanShowBytesReduction) contentHeight += 22;
+                                if (cfg.scanShowElapsedTime) contentHeight += 22;
+                            }
                         }
-                        const int th = std::clamp(contentHeight, 170, 560);
-                        SDL_SetWindowSize(toastWindow, tw, th);
-                        SDL_SetWindowPosition(toastWindow, usable.x + usable.w - tw - 18, usable.y + usable.h - th - 18);
+                    } else {
+                        if (cfg.resultShowDiagnosticTotal) contentHeight += 22;
+                        if (cfg.resultShowFallbackNotice &&
+                            (toastOutcome == ToastOutcome::OfflineFallback ||
+                             toastOutcome == ToastOutcome::ModelFallback))
+                            contentHeight += 58;
+
+                        const bool hasResultStats =
+                            cfg.resultShowSource || cfg.resultShowPrefilterCounts ||
+                            cfg.resultShowEstimatedTokens ||
+                            (cfg.resultShowRealTokens &&
+                                (stats.promptTokens > 0 || stats.completionTokens > 0)) ||
+                            cfg.resultShowBytesReduction || cfg.resultShowTime;
+                        if (hasResultStats) {
+                            contentHeight += 28; // Stats disclosure row
+                            if (toastStatsExpanded) {
+                                if (cfg.resultShowSource) contentHeight += 22;
+                                if (cfg.resultShowPrefilterCounts) contentHeight += 22;
+                                if (cfg.resultShowEstimatedTokens) contentHeight += 22;
+                                if (cfg.resultShowRealTokens &&
+                                    (stats.promptTokens > 0 || stats.completionTokens > 0))
+                                    contentHeight += 22;
+                                if (cfg.resultShowBytesReduction) contentHeight += 22;
+                                if (cfg.resultShowTime) contentHeight += 22;
+                            }
+                        }
+
+                        if (cfg.resultShowAutoCopy && toastAutoCopied) contentHeight += 34;
+                        if (cfg.resultShowCounts) contentHeight += 22;
+
+                        if (cfg.resultShowPreview && !output.empty()) {
+                            contentHeight += 30; // Preview disclosure row
+                            if (toastPreviewExpanded) {
+                                const auto sizingPreviewEntries = DiagnosticEntries(output);
+                                const int previewRows = static_cast<int>(std::min<size_t>(
+                                    sizingPreviewEntries.size(),
+                                    static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10))));
+                                contentHeight += previewRows * 23;
+                                if (sizingPreviewEntries.size() > static_cast<size_t>(previewRows))
+                                    contentHeight += 20;
+                            }
+                        }
+
+                        if (cfg.resultShowLifetimeBar) contentHeight += 14;
                     }
-                    if (displays) SDL_free(displays);
+
+                    const int maxToastHeight = std::max(220, usable.h - 36);
+                    const int th = std::clamp(contentHeight, 180, maxToastHeight);
+                    int currentW = 0, currentH = 0;
+                    SDL_GetWindowSize(toastWindow, &currentW, &currentH);
+                    if (currentW != tw || currentH != th)
+                        SDL_SetWindowSize(toastWindow, tw, th);
+                    SDL_SetWindowPosition(
+                        toastWindow,
+                        usable.x + usable.w - tw - 18,
+                        usable.y + usable.h - th - 18);
+                }
+                if (displays) SDL_free(displays);
+
+                if (toastWasHidden) {
                     SDL_ShowWindow(toastWindow);
                     SDL_RaiseWindow(toastWindow);
                 }
@@ -3319,9 +3385,10 @@ int main(int argc, char** argv) {
                     if (cfg.scanShowSource || cfg.scanShowPrefilterCounts ||
                         cfg.scanShowEstimatedTokens || cfg.scanShowBytesReduction ||
                         cfg.scanShowElapsedTime) {
-                        if (ImGui::BeginTable("##scan_popup_stats", 2,
+                        ToastDisclosureRow("scan_stats", "Stats", toastStatsExpanded, outcomeColor);
+                        if (toastStatsExpanded && ImGui::BeginTable("##scan_popup_stats", 2,
                             ImGuiTableFlags_SizingStretchProp)) {
-                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+                            ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 94.0f);
                             ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
 
                             if (cfg.scanShowSource) {
@@ -3407,9 +3474,13 @@ int main(int argc, char** argv) {
                             (stats.promptTokens > 0 || stats.completionTokens > 0)) ||
                         cfg.resultShowBytesReduction || cfg.resultShowTime;
 
-                    if (hasResultStats && ImGui::BeginTable("##result_popup_stats", 2,
-                        ImGuiTableFlags_SizingStretchProp)) {
-                        ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+                    if (hasResultStats) {
+                        ToastDisclosureRow("result_stats", "Stats", toastStatsExpanded, outcomeColor);
+                    }
+                    if (hasResultStats && toastStatsExpanded &&
+                        ImGui::BeginTable("##result_popup_stats", 2,
+                            ImGuiTableFlags_SizingStretchProp)) {
+                        ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, 94.0f);
                         ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch);
 
                         if (cfg.resultShowSource) {
@@ -3436,11 +3507,13 @@ int main(int argc, char** argv) {
                         if (cfg.resultShowRealTokens &&
                             (stats.promptTokens > 0 || stats.completionTokens > 0)) {
                             ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("LLM tokens (real)");
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("LLM tokens");
                             ImGui::TableSetColumnIndex(1);
                             ImGui::TextColored(ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
                                 "%d prompt + %d output",
                                 stats.promptTokens, stats.completionTokens);
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(real)");
                         }
                         if (cfg.resultShowBytesReduction) {
                             const double reduced = stats.inputBytes > 0
@@ -3483,9 +3556,16 @@ int main(int argc, char** argv) {
                     if (cfg.resultShowPreview && !output.empty()) {
                         ImGui::Separator();
                         const auto previewEntries = DiagnosticEntries(output);
+                        ToastDisclosureRow(
+                            "result_preview",
+                            ("Preview (" + std::to_string(previewEntries.size()) + ")").c_str(),
+                            toastPreviewExpanded,
+                            outcomeColor);
+
                         const size_t previewCount = std::min<size_t>(
                             previewEntries.size(),
                             static_cast<size_t>(std::clamp(cfg.toastPreviewLines, 1, 10)));
+                        if (toastPreviewExpanded) {
                         for (size_t i = 0; i < previewCount; ++i) {
                             std::string preview = previewEntries[i];
                             const size_t nl = preview.find('\n');
@@ -3509,6 +3589,7 @@ int main(int argc, char** argv) {
                         if (previewEntries.size() > previewCount)
                             ImGui::TextDisabled("+%zu more",
                                 previewEntries.size() - previewCount);
+                        }
                     }
                 }
                 if (!toastProcessing && cfg.resultShowLifetimeBar) {
