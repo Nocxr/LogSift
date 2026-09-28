@@ -774,12 +774,6 @@ std::string StripTimestampPrefix(std::string line) {
             if (LooksLikeTimestampToken(token)) {
                 pos = close + 1;
                 strippedTimestamp = true;
-                if (pos < line.size() && line[pos] == '[') {
-                    const size_t close2 = line.find(']', pos + 1);
-                    if (close2 != std::string::npos &&
-                        IsAllDigits(line.substr(pos + 1, close2 - pos - 1)))
-                        pos = close2 + 1;
-                }
             }
         }
     }
@@ -801,7 +795,36 @@ std::string StripTimestampPrefix(std::string line) {
     }
 
     if (!strippedTimestamp) return line;
-    while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos]))) ++pos;
+
+    while (pos < line.size() &&
+           std::isspace(static_cast<unsigned char>(line[pos])))
+        ++pos;
+
+    // Unreal normally follows the timestamp with a frame/thread token such as
+    // [585]. OCR can turn that into [S85], [O], etc. If a short bracket token
+    // is immediately followed by a Log category, treat it as the same prefix.
+    if (pos < line.size() && line[pos] == '[') {
+        const size_t close2 = line.find(']', pos + 1);
+        if (close2 != std::string::npos && close2 - pos <= 12) {
+            size_t after = close2 + 1;
+            while (after < line.size() &&
+                   std::isspace(static_cast<unsigned char>(line[after])))
+                ++after;
+            if (line.compare(after, 3, "Log") == 0)
+                pos = after;
+        }
+    }
+
+    // Be extra tolerant of OCR punctuation/spacing around Unreal prefixes.
+    // Once a real timestamp was removed, the category itself is the safest
+    // canonical start for display when it appears near the front.
+    const size_t logPos = line.find("Log", pos);
+    if (logPos != std::string::npos && logPos < pos + 32)
+        pos = logPos;
+
+    while (pos < line.size() &&
+           std::isspace(static_cast<unsigned char>(line[pos])))
+        ++pos;
     return line.substr(pos);
 }
 
@@ -2598,9 +2621,13 @@ int main(int argc, char** argv) {
 #endif
 
     auto cancelActiveSift = [&](const char* source) {
-        if (!busy) return;
+        const bool active =
+            busy || toastProcessing ||
+            (activeProgress && !activeProgress->cancelled.load());
+        if (!active) return;
 
-        ++requestGeneration; // permanently invalidate the result from this worker
+        ++requestGeneration; // permanently invalidate any worker result
+        activeRequestGeneration = requestGeneration;
         if (activeProgress)
             activeProgress->cancelled = true;
 
@@ -3601,15 +3628,21 @@ int main(int argc, char** argv) {
             stats.inputBytes, stats.filteredBytes, reduction, stats.seconds,
             stats.promptTokens, stats.completionTokens);
         if (stats.ocr.present) {
+            ImGui::SeparatorText("OCR PASS");
             ImGui::TextColored(ImVec4(0.72f,0.62f,1.0f,1.0f),
-                "OCR pass: %zu image bytes -> %zu text bytes   %zu lines / %zu words   %.3f s   Prompt: %d tok   Output: %d tok",
-                stats.ocr.imageBytes, stats.ocr.outputBytes,
-                stats.ocr.outputLines, stats.ocr.outputWords,
+                "Image: %s   %zu bytes",
+                stats.ocr.mimeType.empty() ? "image" : stats.ocr.mimeType.c_str(),
+                stats.ocr.imageBytes);
+            ImGui::TextDisabled(
+                "Extracted: %zu bytes   %zu lines   %zu words",
+                stats.ocr.outputBytes, stats.ocr.outputLines, stats.ocr.outputWords);
+            ImGui::TextColored(ImVec4(0.45f,1.0f,0.55f,1.0f),
+                "Time: %.3f s   Prompt: %d tok   Output: %d tok",
                 stats.ocr.seconds, stats.ocr.promptTokens, stats.ocr.completionTokens);
             if (stats.ocr.promptTokensPerSecond > 0.0 ||
                 stats.ocr.completionTokensPerSecond > 0.0) {
                 ImGui::SameLine();
-                ImGui::TextDisabled("  %.0f prompt/s | %.0f output/s",
+                ImGui::TextDisabled("%.0f prompt/s | %.0f output/s",
                     stats.ocr.promptTokensPerSecond,
                     stats.ocr.completionTokensPerSecond);
             }
@@ -4106,7 +4139,9 @@ int main(int argc, char** argv) {
                     const bool sizingAcknowledgement =
                         !toastProcessing && toastOutcome == ToastOutcome::Processing;
                     const bool sizingScanLayout =
-                        toastProcessing || toastOutcome == ToastOutcome::Cancelled;
+                        toastProcessing ||
+                        toastOutcome == ToastOutcome::Cancelled ||
+                        toastOutcome == ToastOutcome::Empty;
                     const auto ocrPopupRows = [&]() {
                         if (!stats.ocr.present) return 0;
                         int rows = 1; // image input
@@ -4321,7 +4356,9 @@ int main(int argc, char** argv) {
                 ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), titleY + ImGui::GetTextLineHeightWithSpacing()));
 
                 const bool scanLayout =
-                    toastProcessing || toastOutcome == ToastOutcome::Cancelled;
+                    toastProcessing ||
+                    toastOutcome == ToastOutcome::Cancelled ||
+                    toastOutcome == ToastOutcome::Empty;
                 if (scanLayout) {
                     const double elapsed = toastProcessing
                         ? std::chrono::duration<double>(
@@ -4331,6 +4368,11 @@ int main(int argc, char** argv) {
                     if (cfg.scanShowProgress) {
                         if (toastOutcome == ToastOutcome::Cancelled) {
                             ImGui::TextColored(outcomeColor, "Sift cancelled");
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
+                            ImGui::ProgressBar(1.0f, {-1, 5}, "");
+                            ImGui::PopStyleColor();
+                        } else if (toastOutcome == ToastOutcome::Empty) {
+                            ImGui::TextColored(outcomeColor, "No actionable diagnostics found");
                             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outcomeColor);
                             ImGui::ProgressBar(1.0f, {-1, 5}, "");
                             ImGui::PopStyleColor();
@@ -4723,18 +4765,22 @@ int main(int argc, char** argv) {
                 const float openW = 82.0f, copyW = 112.0f, dismissW = 82.0f, cancelW = 82.0f, gap = 8.0f;
                 ImGui::Spacing();
 
-                if (toastProcessing || toastOutcome == ToastOutcome::Cancelled) {
+                if (toastProcessing ||
+                    toastOutcome == ToastOutcome::Cancelled ||
+                    toastOutcome == ToastOutcome::Empty) {
                     ImGui::Separator();
                     ImGui::Spacing();
-                    const bool cancelledLayout = toastOutcome == ToastOutcome::Cancelled;
-                    const float secondW = cancelledLayout ? dismissW : cancelW;
+                    const bool finishedScanLayout =
+                        toastOutcome == ToastOutcome::Cancelled ||
+                        toastOutcome == ToastOutcome::Empty;
+                    const float secondW = finishedScanLayout ? dismissW : cancelW;
                     const float totalW = openW + secondW + gap;
                     ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
                         ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - totalW));
                     if (ImGui::Button("Open", {openW, buttonH}))
                         reopenMainWindow();
                     ImGui::SameLine(0.0f, gap);
-                    if (cancelledLayout) {
+                    if (finishedScanLayout) {
                         if (ImGui::Button("Dismiss", {dismissW, buttonH}))
                             toastText.clear();
                     } else {
