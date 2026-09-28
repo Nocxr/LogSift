@@ -2707,7 +2707,16 @@ int main(int argc, char** argv) {
     std::chrono::steady_clock::time_point toastMouseLeftAt{};
     std::chrono::steady_clock::time_point toastPauseToastShownAt{};
 
-    enum class ToastOutcome { Processing, Success, Empty, OfflineFallback, ModelFallback, Cancelled, Failure };
+    enum class ToastOutcome {
+        Processing,
+        OcrPrompt,
+        Success,
+        Empty,
+        OfflineFallback,
+        ModelFallback,
+        Cancelled,
+        Failure
+    };
     ToastOutcome toastOutcome = ToastOutcome::Processing;
     std::chrono::steady_clock::time_point toastShownAt{};
     std::future<SiftResult> request;
@@ -2722,6 +2731,8 @@ int main(int argc, char** argv) {
     std::vector<std::string> availableModels;
     std::string computeStatus = "Auto";
     RunStats stats;
+    ClipboardImage pendingOcrImage;
+    bool pendingOcrImageReady = false;
 
     enum class ConnectionStage {
         Checking,
@@ -2779,6 +2790,85 @@ int main(int argc, char** argv) {
 
         AppendActivityLog(appLog, "CANCEL",
             std::string("Sift cancelled from ") + source + ".");
+    };
+
+    auto beginOcrScan = [&](ClipboardImage image, const std::string& sourceKind,
+                            const std::string& activitySource) {
+        pendingOcrImage = {};
+        pendingOcrImageReady = false;
+
+        output.clear();
+        questionableOutput.clear();
+        lastInputBytes = 0;
+        lastFilteredBytes = 0;
+        stats = {};
+        inputSourceKind = sourceKind.empty() ? "OCR" : sourceKind;
+        stats.sourceKind = inputSourceKind;
+        stats.logType = "Image / OCR";
+        stats.profile = "Vision OCR";
+        stats.model = cfg.model;
+        stats.compute =
+            cfg.computeMode == 1 ? "GPU max" :
+            cfg.computeMode == 2 ? "CPU" : "Auto";
+        stats.inputBytes = image.bytes.size();
+        stats.route = "Vision OCR";
+        stats.ocr.present = true;
+        stats.ocr.mimeType = image.mimeType;
+        stats.ocr.imageBytes = image.bytes.size();
+
+        if (!cfg.ocrEnabled) {
+            status = "Image ignored - OCR is disabled.";
+            AppendActivityLog(appLog, "OCR", status);
+            return;
+        }
+
+        if (!visionSupportKnown || !visionSupported) {
+            status = visionSupportKnown
+                ? "Image ignored - selected model does not support Vision/OCR."
+                : "Image ignored - Vision/OCR support has not been confirmed.";
+            stats.route = visionSupportKnown ? "Vision unsupported" : "Vision unknown";
+            toastText = "Vision unavailable";
+            toastProcessing = false;
+            toastOutcome = ToastOutcome::Failure;
+            toastSoundPlayed = false;
+            toastAutoCopied = false;
+            toastShownAt = std::chrono::steady_clock::now();
+            toastUntil = toastShownAt + std::chrono::milliseconds(
+                static_cast<int>(cfg.toastSeconds * 1000.0f));
+            AppendActivityLog(appLog, "OCR", "Image not sent: " + status);
+            return;
+        }
+
+        ++requestGeneration;
+        input.clear();
+        requestStarted = std::chrono::steady_clock::now();
+        toastText = "Reading image";
+        toastProcessing = true;
+        toastOutcome = ToastOutcome::Processing;
+        toastSoundPlayed = false;
+        toastAutoCopied = false;
+        toastShownAt = requestStarted;
+        toastUntil = requestStarted + std::chrono::hours(1);
+        if (cfg.toastSound) PlaySynthPreset(cfg.startSoundPreset, true);
+
+        const Config capturedCfg = cfg;
+        const std::string capturedPrompt = prompt;
+        activeRequestGeneration = requestGeneration;
+        activeProgress = std::make_shared<SiftProgress>();
+        activeProgress->total = 1;
+        activeProgress->chunking = false;
+        busy = true;
+        status = activitySource + " - extracting text...";
+        AppendActivityLog(appLog, "OCR",
+            activitySource + " sent to " + cfg.model + " for Vision/OCR.");
+        request = LaunchSiftTask(
+            [capturedCfg,
+             capturedImage = std::move(image),
+             capturedPrompt,
+             progress = activeProgress]() mutable {
+                return SendClipboardImage(
+                    capturedCfg, capturedImage, capturedPrompt, progress);
+            });
     };
 
     auto startHealthCheck = [&](bool startupSequence, bool warnIfUnreachable) {
