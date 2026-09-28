@@ -1111,10 +1111,15 @@ int main(int argc, char** argv) {
     double lastResponseSeconds = 0.0;
     size_t lastInputBytes = 0, lastFilteredBytes = 0;
     auto lastClipboardCheck = std::chrono::steady_clock::now(); // non-Windows fallback only
+    auto lastUiActivity = std::chrono::steady_clock::now();
 
     while (running) {
 #ifdef __APPLE__
-        if (LogSiftMacTrayTakeOpen()) { SDL_ShowWindow(window); SDL_RaiseWindow(window); }
+        if (LogSiftMacTrayTakeOpen()) {
+            SDL_ShowWindow(window);
+            SDL_RaiseWindow(window);
+            lastUiActivity = std::chrono::steady_clock::now();
+        }
         if (LogSiftMacTrayTakeToggleWatch()) {
             watchClipboard=!watchClipboard;
             LogSiftMacTraySetWatch(watchClipboard);
@@ -1298,6 +1303,20 @@ int main(int argc, char** argv) {
 
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
+            const bool uiActivityEvent =
+                event.type == SDL_EVENT_MOUSE_MOTION ||
+                event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
+                event.type == SDL_EVENT_MOUSE_WHEEL ||
+                event.type == SDL_EVENT_KEY_DOWN ||
+                event.type == SDL_EVENT_KEY_UP ||
+                event.type == SDL_EVENT_TEXT_INPUT ||
+                event.type == SDL_EVENT_WINDOW_SHOWN ||
+                event.type == SDL_EVENT_WINDOW_EXPOSED ||
+                event.type == SDL_EVENT_WINDOW_RESIZED ||
+                event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
+            if (uiActivityEvent) lastUiActivity = std::chrono::steady_clock::now();
             if (toastContext && toastWindow && event.window.windowID == SDL_GetWindowID(toastWindow)) {
                 ImGui::SetCurrentContext(toastContext);
                 ImGui_ImplSDL3_ProcessEvent(&event);
@@ -1740,11 +1759,18 @@ int main(int argc, char** argv) {
         const bool toastActive = !toastText.empty() && (toastProcessing || std::chrono::steady_clock::now() < toastUntil);
         if (!toastActive && !toastText.empty()) toastText.clear();
 
-        ImGui::Render();
-        SDL_SetRenderDrawColor(renderer, 18,18,20,255);
-        SDL_RenderClear(renderer);
-        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
-        SDL_RenderPresent(renderer);
+        const bool mainVisibleForRender = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
+        if (mainVisibleForRender) {
+            ImGui::Render();
+            SDL_SetRenderDrawColor(renderer, 18,18,20,255);
+            SDL_RenderClear(renderer);
+            ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
+            SDL_RenderPresent(renderer);
+        } else {
+            // Keep ImGui state valid while the menu-bar app is hidden, but do not
+            // submit invisible renderer work to the GPU.
+            ImGui::EndFrame();
+        }
 
         if (toastContext && toastWindow && toastRenderer) {
             if (toastActive) {
@@ -1893,19 +1919,25 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Avoid burning a core in the background. The Windows tray/clipboard
-        // message pump is serviced every iteration, but when there is no active
-        // request/toast and the main window is hidden we can sleep substantially
-        // longer without affecting clipboard-event handling perceptibly.
+        // Adaptive pacing: only run fast while the user is interacting. A visible
+        // but untouched utility window does not need game-style 60 FPS redraws,
+        // and a hidden menu-bar app should do essentially no renderer work.
         const bool asyncActive = busy || checkingHealth || benchmarking || loadingModels || applyingCompute;
         const bool mainVisible = (SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) == 0;
-        // Toast animation can run above the main UI rate without affecting tray-idle CPU.
-        // Hidden true-idle is blocked above and never reaches this delay.
+        const bool uiRecentlyActive =
+            std::chrono::steady_clock::now() - lastUiActivity < std::chrono::milliseconds(900);
+
         if (toastActive) {
             const Uint32 frameMs = static_cast<Uint32>(std::max(1, 1000 / std::max(1, cfg.toastFps)));
             SDL_Delay(frameMs);
+        } else if (uiRecentlyActive && mainVisible) {
+            SDL_Delay(16u);   // ~60 FPS while interacting.
+        } else if (asyncActive) {
+            SDL_Delay(mainVisible ? 33u : 75u); // progress/status updates only.
+        } else if (mainVisible) {
+            SDL_Delay(100u);  // ~10 FPS when the window is visible but idle.
         } else {
-            SDL_Delay((asyncActive || mainVisible) ? 16u : 25u);
+            SDL_Delay(100u);  // menu-bar idle; clipboard polling is only every 350 ms.
         }
     }
 
