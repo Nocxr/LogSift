@@ -1791,7 +1791,6 @@ SiftResult SendModelChunk(
         cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
     cmd += " --data-binary @" + ShellQuote(temp.string()) + " 2>&1";
 
-    const auto ocrStarted = std::chrono::steady_clock::now();
     std::string raw;
     try {
         raw = ReadPipe(cmd);
@@ -1993,6 +1992,7 @@ VisionTextResult ExtractTextFromClipboardImage(const Config& cfg, const Clipboar
         cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
     cmd += " --data-binary @" + ShellQuote(temp.string()) + " 2>&1";
 
+    const auto ocrStarted = std::chrono::steady_clock::now();
     std::string raw;
     try {
         raw = ReadPipe(cmd);
