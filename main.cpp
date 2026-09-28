@@ -35,9 +35,12 @@
 extern "C" void LogSiftMacTrayInit(void);
 extern "C" bool LogSiftMacTrayTakeOpen(void);
 extern "C" bool LogSiftMacTrayTakeToggleWatch(void);
+extern "C" bool LogSiftMacTrayTakeToggleAutoCopy(void);
+extern "C" bool LogSiftMacTrayTakeOpenLog(void);
 extern "C" bool LogSiftMacTrayTakeCopy(void);
 extern "C" bool LogSiftMacTrayTakeQuit(void);
 extern "C" void LogSiftMacTraySetWatch(bool enabled);
+extern "C" void LogSiftMacTraySetAutoCopy(bool enabled);
 extern "C" long long LogSiftMacClipboardChangeCount(void);
 extern "C" bool LogSiftMacGetStartAtLogin(void);
 extern "C" bool LogSiftMacSetStartAtLogin(bool enabled);
@@ -55,7 +58,10 @@ bool gTrayRestoreRequested = false;
 bool gTrayExitRequested = false;
 bool gTrayCopyRequested = false;
 bool gTrayWatchToggleRequested = false;
+bool gTrayAutoCopyToggleRequested = false;
+bool gTrayOpenLogRequested = false;
 bool gTrayWatchEnabled = true;
+bool gTrayAutoCopyEnabled = false;
 bool gClipboardUpdatePending = false;
 bool gIgnoreNextClipboardUpdate = false;
 HICON gAppIconSmall = nullptr;
@@ -155,18 +161,20 @@ LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         if (lParam == WM_RBUTTONUP) {
             POINT pt{}; GetCursorPos(&pt);
             HMENU menu = CreatePopupMenu();
-            AppendMenuW(menu, MF_STRING, 1, L"Open Log Sift");
+            AppendMenuW(menu, MF_STRING, 1, L"Open");
             AppendMenuW(menu, MF_STRING | (gTrayWatchEnabled ? MF_CHECKED : MF_UNCHECKED), 4, L"Watch Clipboard");
-            AppendMenuW(menu, MF_STRING, 2, L"Copy Results");
+            AppendMenuW(menu, MF_STRING | (gTrayAutoCopyEnabled ? MF_CHECKED : MF_UNCHECKED), 5, L"Auto Copy");
+            AppendMenuW(menu, MF_STRING, 6, L"Open Log");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, 3, L"Exit");
             SetForegroundWindow(hwnd);
             const UINT cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, nullptr);
             DestroyMenu(menu);
             if (cmd == 1) gTrayRestoreRequested = true;
-            if (cmd == 2) gTrayCopyRequested = true;
             if (cmd == 3) gTrayExitRequested = true;
             if (cmd == 4) gTrayWatchToggleRequested = true;
+            if (cmd == 5) gTrayAutoCopyToggleRequested = true;
+            if (cmd == 6) gTrayOpenLogRequested = true;
         }
         return 0;
     }
