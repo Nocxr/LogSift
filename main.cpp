@@ -1840,8 +1840,21 @@ int main(int argc, char** argv) {
     std::vector<std::string> availableModels;
     std::string computeStatus = "Auto";
     RunStats stats;
-    std::string health = "Not checked";
-    std::string benchmarkStatus = "Not run";
+
+    enum class ConnectionStage {
+        Checking,
+        LoadingModels,
+        Benchmarking,
+        Ready,
+        Unreachable,
+        ModelsFailed,
+        BenchmarkFailed
+    };
+    ConnectionStage connectionStage = ConnectionStage::Checking;
+    std::string health = "Checking model...";
+    std::string benchmarkStatus = "Waiting for model check...";
+    bool startupConnectionSequence = true;
+    bool warnOnHealthFailure = false;
     std::chrono::steady_clock::time_point requestStarted{};
     double lastResponseSeconds = 0.0;
     size_t lastInputBytes = 0, lastFilteredBytes = 0;
@@ -1850,11 +1863,32 @@ int main(int argc, char** argv) {
     long long lastMacClipboardChangeCount = LogSiftMacClipboardChangeCount();
 #endif
 
+    auto startHealthCheck = [&](bool startupSequence, bool warnIfUnreachable) {
+        if (checkingHealth) return;
+        startupConnectionSequence = startupSequence;
+        warnOnHealthFailure = warnIfUnreachable;
+        connectionStage = ConnectionStage::Checking;
+        health = "Checking model...";
+        if (startupSequence) benchmarkStatus = "Waiting for health check...";
+        checkingHealth = true;
+        const Config capturedCfg = cfg;
+        healthRequest = std::async(std::launch::async,
+            [capturedCfg] { return CheckModel(capturedCfg); });
+    };
+
+    auto reopenMainWindow = [&]() {
+        SDL_ShowWindow(window);
+        SDL_RaiseWindow(window);
+        startHealthCheck(false, true);
+    };
+
+    // Fresh launch: verify connectivity, discover models, then benchmark automatically.
+    startHealthCheck(true, false);
+
     while (running) {
 #ifdef __APPLE__
         if (LogSiftMacTrayTakeOpen()) {
-            SDL_ShowWindow(window);
-            SDL_RaiseWindow(window);
+            reopenMainWindow();
         }
         if (LogSiftMacTrayTakeToggleWatch()) {
             cfg.watchClipboard=!cfg.watchClipboard;
@@ -1876,8 +1910,7 @@ int main(int argc, char** argv) {
         }
         if (gTrayRestoreRequested) {
             gTrayRestoreRequested = false;
-            SDL_ShowWindow(window);
-            SDL_RaiseWindow(window);
+            reopenMainWindow();
         }
         if (gTrayWatchToggleRequested) {
             gTrayWatchToggleRequested = false;
@@ -2239,7 +2272,10 @@ int main(int argc, char** argv) {
         if (ImGui::Button(loadingModels ? "Refreshing Models..." : "Refresh Models")) {
             const Config capturedCfg = cfg;
             loadingModels = true;
-            modelListRequest = std::async(std::launch::async, [capturedCfg] { return ListModels(capturedCfg); });
+            startupConnectionSequence = false;
+            connectionStage = ConnectionStage::LoadingModels;
+            modelListRequest = std::async(std::launch::async,
+                [capturedCfg] { return ListModels(capturedCfg); });
         }
         ImGui::SameLine(); ImGui::TextUnformatted("API key"); ImGui::SameLine();
         ImGui::SetNextItemWidth(-1); ImGui::InputText("##key", &cfg.apiKey, ImGuiInputTextFlags_Password);
@@ -2252,10 +2288,7 @@ int main(int argc, char** argv) {
         ImGui::SameLine();
         ImGui::BeginDisabled(checkingHealth || cfg.endpoint.empty());
         if (ImGui::Button(checkingHealth ? "Checking..." : "Check Model")) {
-            const Config capturedCfg = cfg;
-            checkingHealth = true;
-            health = "Checking...";
-            healthRequest = std::async(std::launch::async, [capturedCfg] { return CheckModel(capturedCfg); });
+            startHealthCheck(false, true);
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -2263,8 +2296,11 @@ int main(int argc, char** argv) {
         if (ImGui::Button(benchmarking ? "Benchmarking..." : "Benchmark")) {
             const Config capturedCfg = cfg;
             benchmarking = true;
-            benchmarkStatus = "Running...";
-            benchmarkRequest = std::async(std::launch::async, [capturedCfg] { return Benchmark(capturedCfg); });
+            startupConnectionSequence = false;
+            connectionStage = ConnectionStage::Benchmarking;
+            benchmarkStatus = "Benchmarking...";
+            benchmarkRequest = std::async(std::launch::async,
+                [capturedCfg] { return Benchmark(capturedCfg); });
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
