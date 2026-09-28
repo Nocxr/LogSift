@@ -692,6 +692,10 @@ struct RunStats {
     std::string profile = "Generic Log";
     size_t inputBytes = 0;
     size_t filteredBytes = 0;
+    size_t inputLines = 0;
+    size_t filteredLines = 0;
+    size_t inputWords = 0;
+    size_t filteredWords = 0;
     double seconds = 0.0;
     double ttftSeconds = 0.0;
     int promptTokens = 0;
@@ -2056,6 +2060,13 @@ int main(int argc, char** argv) {
                     stats.profile = ProfileName(input, cfg);
                     stats.inputBytes = input.size();
                     stats.filteredBytes = 0;
+                    {
+                        const auto [lines, words] = HumanTextStats(input);
+                        stats.inputLines = lines;
+                        stats.inputWords = words;
+                        stats.filteredLines = 0;
+                        stats.filteredWords = 0;
+                    }
                     stats.seconds = 0.0;
                     stats.route = "Local prefilter";
                     status = "Clipboard log scanned - no diagnostics found.";
@@ -2078,6 +2089,14 @@ int main(int argc, char** argv) {
                     stats.profile = ProfileName(input, cfg);
                     stats.inputBytes = input.size();
                     stats.filteredBytes = previewFiltered.size();
+                    {
+                        const auto [inputLineCount, inputWordCount] = HumanTextStats(input);
+                        const auto [filteredLineCount, filteredWordCount] = HumanTextStats(previewFiltered);
+                        stats.inputLines = inputLineCount;
+                        stats.inputWords = inputWordCount;
+                        stats.filteredLines = filteredLineCount;
+                        stats.filteredWords = filteredWordCount;
+                    }
                     stats.route = (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered)) ? "Deterministic fast path" : "LLM";
                     requestStarted = now;
                     toastText = "Processing";
@@ -2231,6 +2250,11 @@ int main(int argc, char** argv) {
                             ? FastStructuredResult(fallbackCandidate)
                             : DedupeLines(fallbackCandidate), cfg);
                     stats.filteredBytes = fallbackCandidate.size();
+                    {
+                        const auto [filteredLineCount, filteredWordCount] = HumanTextStats(fallbackCandidate);
+                        stats.filteredLines = filteredLineCount;
+                        stats.filteredWords = filteredWordCount;
+                    }
                     stats.route = endpointUnavailable ? "Offline fallback" : "Model fallback";
                     stats.promptTokens = 0;
                     stats.completionTokens = 0;
@@ -2625,6 +2649,14 @@ int main(int argc, char** argv) {
                 stats.profile = ProfileName(input, cfg);
                 stats.inputBytes = input.size();
                 stats.filteredBytes = previewFiltered.size();
+                {
+                    const auto [inputLineCount, inputWordCount] = HumanTextStats(input);
+                    const auto [filteredLineCount, filteredWordCount] = HumanTextStats(previewFiltered);
+                    stats.inputLines = inputLineCount;
+                    stats.inputWords = inputWordCount;
+                    stats.filteredLines = filteredLineCount;
+                    stats.filteredWords = filteredWordCount;
+                }
                 stats.route =
                     (cfg.preferFastPath && LooksLikeStructuredBuildDiagnostics(previewFiltered))
                         ? "Deterministic fast path"
@@ -3011,8 +3043,25 @@ int main(int argc, char** argv) {
                         ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), {-1, 5}, "");
                         ImGui::PopStyleColor();
                     }
-                    ImGui::TextDisabled("Prefiltered %zu -> %zu bytes  |  %.1f s elapsed",
-                        stats.inputBytes, stats.filteredBytes, elapsed);
+                    ImGui::TextDisabled(
+                        "Prefilter: %zu -> %zu lines  |  %zu -> %zu words",
+                        stats.inputLines, stats.filteredLines,
+                        stats.inputWords, stats.filteredWords);
+                    const double scanReduced = stats.inputBytes > 0
+                        ? 100.0 * (1.0 -
+                            static_cast<double>(stats.filteredBytes) /
+                            static_cast<double>(stats.inputBytes))
+                        : 0.0;
+                    const ImVec4 scanReductionColor = scanReduced >= 75.0
+                        ? ImVec4(0.30f, 0.90f, 0.48f, 1.0f)
+                        : scanReduced >= 40.0
+                            ? ImVec4(0.35f, 0.75f, 1.0f, 1.0f)
+                            : ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
+                    ImGui::TextDisabled("%zu -> %zu bytes", stats.inputBytes, stats.filteredBytes);
+                    ImGui::SameLine();
+                    ImGui::TextColored(scanReductionColor, "%.1f%% reduced", scanReduced);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("| %.1f s elapsed", elapsed);
                 } else {
                     ImGui::Text("%zu diagnostic%s", entries, entries == 1 ? "" : "s");
                     if (toastOutcome == ToastOutcome::OfflineFallback) {
@@ -3038,6 +3087,14 @@ int main(int argc, char** argv) {
 
                     if (!sourceLabel.empty())
                         ImGui::TextDisabled("%s", sourceLabel.c_str());
+
+                    if (cfg.toastShowBytes && stats.inputBytes > 0 &&
+                        (stats.inputLines > 0 || stats.inputWords > 0)) {
+                        ImGui::TextDisabled(
+                            "%zu -> %zu lines  |  %zu -> %zu words",
+                            stats.inputLines, stats.filteredLines,
+                            stats.inputWords, stats.filteredWords);
+                    }
 
                     if (cfg.toastShowBytes && stats.inputBytes > 0) {
                         const double reduced = 100.0 * (1.0 -
