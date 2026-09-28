@@ -360,6 +360,7 @@ struct Config {
     bool autoCopyResults = false;
     bool watchClipboard = true;
     bool ocrEnabled = true;
+    bool autoScanImages = true;
     bool preferFastPath = true;
     // Legacy shared popup toggles are kept for settings migration.
     bool toastShowType = true;
@@ -438,9 +439,10 @@ void ApplyLogSiftStyle() {
 
 void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
     const char* label = sourceKind.empty() ? "Manual" : sourceKind.c_str();
-    const float icon = 16.0f;
+    const float icon = 18.0f;
+    const float badgeHeight = 24.0f;
     const float textWidth = ImGui::CalcTextSize(label).x;
-    const ImVec2 size(icon + 7.0f + textWidth + 10.0f, 20.0f);
+    const ImVec2 size(icon + 8.0f + textWidth + 12.0f, badgeHeight);
     const ImVec2 p = ImGui::GetCursorScreenPos();
 
     ImGui::InvisibleButton("##toast_source_badge", size);
@@ -448,9 +450,9 @@ void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
     const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
     const ImU32 bg = ImGui::ColorConvertFloat4ToU32(
         ImVec4(color.x, color.y, color.z, 0.12f));
-    draw->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), bg, 4.0f);
+    draw->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), bg, 5.0f);
 
-    const ImVec2 q(p.x + 5.0f, p.y + 2.0f);
+    const ImVec2 q(p.x + 6.0f, p.y + 4.0f);
     if (sourceKind == "OCR") {
         // Four scan corners plus a small center lens.
         draw->AddLine({q.x, q.y + 5}, {q.x, q.y}, fg, 1.5f);
@@ -478,10 +480,11 @@ void DrawToastSourceBadge(const std::string& sourceKind, const ImVec4& color) {
         draw->AddLine({q.x + 1, q.y + 12}, {q.x + 8, q.y + 12}, fg, 1.4f);
     }
 
-    draw->AddText({p.x + icon + 8.0f, p.y + 2.0f}, fg, label);
+    const float textY = p.y + (badgeHeight - ImGui::GetTextLineHeight()) * 0.5f;
+    draw->AddText({p.x + icon + 9.0f, textY}, fg, label);
 }
 
-bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 22.0f) {
+bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 26.0f) {
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton("##toast_sound_toggle", {size, size});
     const bool hovered = ImGui::IsItemHovered();
@@ -494,12 +497,13 @@ bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 22.0f)
     }
 
     const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
-    const float cx = p.x + size * 0.47f;
+    const float cx = p.x + size * 0.45f;
     const float cy = p.y + size * 0.50f;
+    const float left = p.x + size * 0.20f;
     ImVec2 speaker[6] = {
-        {p.x + 4, cy - 3}, {p.x + 8, cy - 3},
-        {cx, cy - 7}, {cx, cy + 7},
-        {p.x + 8, cy + 3}, {p.x + 4, cy + 3}
+        {left, cy - 3.5f}, {left + 5.0f, cy - 3.5f},
+        {cx, cy - 7.5f}, {cx, cy + 7.5f},
+        {left + 5.0f, cy + 3.5f}, {left, cy + 3.5f}
     };
     draw->AddConvexPolyFilled(speaker, 6, fg);
 
@@ -509,9 +513,26 @@ bool ToastSoundIconButton(bool enabled, const ImVec4& color, float size = 22.0f)
         draw->PathArcTo({cx, cy}, 8.0f, -0.62f, 0.62f, 10);
         draw->PathStroke(fg, 0, 1.3f);
     } else {
-        draw->AddLine({p.x + 14, p.y + 7}, {p.x + 20, p.y + 15}, fg, 1.6f);
-        draw->AddLine({p.x + 20, p.y + 7}, {p.x + 14, p.y + 15}, fg, 1.6f);
+        const float a = size * 0.60f, b = size * 0.82f;
+        draw->AddLine({p.x + a, p.y + size * 0.32f}, {p.x + b, p.y + size * 0.68f}, fg, 1.7f);
+        draw->AddLine({p.x + b, p.y + size * 0.32f}, {p.x + a, p.y + size * 0.68f}, fg, 1.7f);
     }
+    return clicked;
+}
+
+bool ToastCloseIconButton(const ImVec4& color, float size = 26.0f) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton("##toast_close", {size, size});
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    if (hovered)
+        draw->AddRectFilled(p, {p.x + size, p.y + size},
+            IM_COL32(105, 42, 42, 180), 4.0f);
+    const ImU32 fg = ImGui::ColorConvertFloat4ToU32(color);
+    const float lo = size * 0.34f, hi = size * 0.66f;
+    draw->AddLine({p.x + lo, p.y + lo}, {p.x + hi, p.y + hi}, fg, 1.8f);
+    draw->AddLine({p.x + hi, p.y + lo}, {p.x + lo, p.y + hi}, fg, 1.8f);
+    if (hovered) ImGui::SetTooltip("Close notification");
     return clicked;
 }
 
@@ -622,6 +643,7 @@ json ConfigToJson(const Config& cfg) {
         {"auto_copy_results", cfg.autoCopyResults},
         {"watch_clipboard", cfg.watchClipboard},
         {"ocr_enabled", cfg.ocrEnabled},
+        {"auto_scan_images", cfg.autoScanImages},
         {"prefer_fast_path", cfg.preferFastPath}
     };
 }
@@ -688,6 +710,7 @@ void LoadConfig(Config& cfg) {
         cfg.autoCopyResults = j.value("auto_copy_results", cfg.autoCopyResults);
         cfg.watchClipboard = j.value("watch_clipboard", cfg.watchClipboard);
         cfg.ocrEnabled = j.value("ocr_enabled", cfg.ocrEnabled);
+        cfg.autoScanImages = j.value("auto_scan_images", cfg.autoScanImages);
         cfg.preferFastPath = j.value("prefer_fast_path", cfg.preferFastPath);
 
         auto loadColor = [&](const char* key, float (&dst)[3]) {
