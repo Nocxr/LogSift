@@ -3436,7 +3436,7 @@ int main(int argc, char** argv) {
                         if (cfg.resultShowRealTokens &&
                             (stats.promptTokens > 0 || stats.completionTokens > 0)) {
                             ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("LLM tokens");
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("LLM tokens (real)");
                             ImGui::TableSetColumnIndex(1);
                             ImGui::TextColored(ImVec4(0.42f, 0.78f, 1.00f, 1.0f),
                                 "%d prompt + %d output",
@@ -3511,7 +3511,7 @@ int main(int argc, char** argv) {
                                 previewEntries.size() - previewCount);
                     }
                 }
-                if (!toastProcessing) {
+                if (!toastProcessing && cfg.resultShowLifetimeBar) {
                     const auto nowToast = std::chrono::steady_clock::now();
                     const float remaining = std::max(0.0f, std::chrono::duration<float>(toastUntil - nowToast).count());
                     const float fraction = cfg.toastSeconds > 0.0f ? std::clamp(remaining / cfg.toastSeconds, 0.0f, 1.0f) : 0.0f;
