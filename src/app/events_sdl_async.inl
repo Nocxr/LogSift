@@ -257,10 +257,12 @@
         }
         if (checkingHealth && healthRequest.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             bool online = false;
+            bool modelAvailable = false;
             try {
                 const ModelHealthResult healthResult = healthRequest.get();
                 health = healthResult.status;
                 online = healthResult.online;
+                modelAvailable = healthResult.modelAvailable;
                 visionSupportKnown = healthResult.visionChecked;
                 visionSupported = healthResult.visionSupported;
                 visionStatus = !healthResult.visionChecked
@@ -303,12 +305,18 @@
                 loadingModels = true;
                 const Config capturedCfg = cfg;
                 modelListRequest = LaunchBackgroundTask([capturedCfg] { return ListModels(capturedCfg); });
+            } else if (!modelAvailable) {
+                connectionStage = ConnectionStage::ModelsFailed;
+                AppendActivityLog(appLog, "HEALTH",
+                    "Model endpoint reachable, but selected model is unavailable.");
+                if (warnOnHealthFailure)
+                    status = "Model endpoint reachable, but selected model is unavailable.";
             } else {
                 connectionStage = ConnectionStage::Ready;
                 AppendActivityLog(appLog, "HEALTH",
-                    "Model endpoint reachable; Vision/OCR: " + visionStatus + ".");
+                    "Model endpoint and selected model reachable; Vision/OCR: " + visionStatus + ".");
                 if (warnOnHealthFailure)
-                    status = "Model endpoint reachable. Vision/OCR: " + visionStatus + ".";
+                    status = "Model reachable. Vision/OCR: " + visionStatus + ".";
             }
             warnOnHealthFailure = false;
         }
