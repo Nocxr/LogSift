@@ -163,10 +163,36 @@
             if (clipboardSequence == lastClipboardSequence) continue;
             lastClipboardSequence = clipboardSequence;
 #endif
+            // Clipboard activity is enough to opportunistically recheck an
+            // offline endpoint, but image bytes stay untouched until that check
+            // has confirmed the model is reachable again.
+            if (connectionStage == ConnectionStage::Unreachable && !checkingHealth)
+                startHealthCheck(false, false);
+
             std::string clip;
             std::string clipboardSourceKind = "Clipboard";
             ClipboardImage clipboardImage;
             bool clipboardHasImage = false;
+            bool clipboardImageSuppressed = false;
+            const bool modelReadyForImageWatch =
+                connectionStage == ConnectionStage::Ready &&
+                !checkingHealth && !loadingModels && !benchmarking &&
+                !applyingCompute;
+
+            if (!modelReadyForImageWatch) {
+                // Detect only the clipboard format here; do not fetch/decode image
+                // bytes until the model has been confirmed ready.
+                clipboardImageSuppressed =
+                    SDL_HasClipboardData("image/png") ||
+                    SDL_HasClipboardData("image/jpeg") ||
+                    SDL_HasClipboardData("image/jpg");
+#ifdef _WIN32
+                clipboardImageSuppressed =
+                    clipboardImageSuppressed ||
+                    IsClipboardFormatAvailable(CF_DIB) ||
+                    IsClipboardFormatAvailable(CF_DIBV5);
+#endif
+            }
 #ifdef _WIN32
             if (IsClipboardFormatAvailable(CF_HDROP) && OpenClipboard(nullptr)) {
                 HDROP drop = static_cast<HDROP>(GetClipboardData(CF_HDROP));
@@ -187,15 +213,21 @@
                                 clipboardSourceKind = "File";
                             }
                         } else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
-                            std::ifstream imageFile(p, std::ios::binary);
-                            if (imageFile) {
-                                clipboardImage.bytes.assign(
-                                    std::istreambuf_iterator<char>(imageFile),
-                                    std::istreambuf_iterator<char>());
-                                if (!clipboardImage.bytes.empty()) {
-                                    clipboardImage.mimeType =
-                                        ext == ".png" ? "image/png" : "image/jpeg";
-                                    clipboardHasImage = true;
+                            if (!modelReadyForImageWatch) {
+                                // Do not read image bytes or enter the OCR flow while the
+                                // selected model is not known to be reachable and ready.
+                                clipboardImageSuppressed = true;
+                            } else {
+                                std::ifstream imageFile(p, std::ios::binary);
+                                if (imageFile) {
+                                    clipboardImage.bytes.assign(
+                                        std::istreambuf_iterator<char>(imageFile),
+                                        std::istreambuf_iterator<char>());
+                                    if (!clipboardImage.bytes.empty()) {
+                                        clipboardImage.mimeType =
+                                            ext == ".png" ? "image/png" : "image/jpeg";
+                                        clipboardHasImage = true;
+                                    }
                                 }
                             }
                         }
@@ -204,8 +236,16 @@
                 CloseClipboard();
             }
 #endif
-            if (!clipboardHasImage && clip.empty())
+            if (!clipboardHasImage && clip.empty() &&
+                modelReadyForImageWatch) {
                 clipboardHasImage = GetClipboardImage(clipboardImage);
+            }
+
+            // An image copied while the model is offline/checking is intentionally
+            // ignored. Do not decode it, show the OCR prompt, or reinterpret a
+            // copied image-file path as ordinary clipboard text.
+            if (clipboardImageSuppressed)
+                continue;
 
             if (clipboardHasImage) {
                 AppendActivityLog(appLog, "CLIPBOARD",
