@@ -277,6 +277,19 @@
             if (!online) {
                 AppendActivityLog(appLog, "HEALTH", "Model endpoint unreachable: " + health);
                 connectionStage = ConnectionStage::Unreachable;
+
+                // A pending OCR confirmation is no longer actionable. Remove it
+                // immediately instead of leaving an Image Detected popup visible
+                // while the model is offline.
+                if (toastOutcome == ToastOutcome::OcrPrompt) {
+                    pendingOcrImage = {};
+                    pendingOcrImageReady = false;
+                    toastText.clear();
+                    toastProcessing = false;
+                    if (toastWindow)
+                        SDL_HideWindow(toastWindow);
+                }
+
                 benchmarkStatus = startupConnectionSequence
                     ? "Startup benchmark skipped - model unreachable"
                     : benchmarkStatus;
