@@ -45,6 +45,75 @@
 #include <shellapi.h>
 #include <mmsystem.h>
 #include <commdlg.h>
+
+std::vector<std::string> WindowsCommandLineArgs() {
+    int wideArgc = 0;
+    LPWSTR* wideArgv = CommandLineToArgvW(GetCommandLineW(), &wideArgc);
+    if (!wideArgv || wideArgc <= 0) {
+        if (wideArgv) LocalFree(wideArgv);
+        return {"logsift"};
+    }
+
+    std::vector<std::string> args;
+    args.reserve(static_cast<size_t>(wideArgc));
+    for (int i = 0; i < wideArgc; ++i) {
+        const int bytes = WideCharToMultiByte(
+            CP_UTF8, 0, wideArgv[i], -1, nullptr, 0, nullptr, nullptr);
+        if (bytes <= 0) {
+            args.emplace_back();
+            continue;
+        }
+
+        std::string arg(static_cast<size_t>(bytes), '\0');
+        WideCharToMultiByte(
+            CP_UTF8, 0, wideArgv[i], -1, arg.data(), bytes, nullptr, nullptr);
+        if (!arg.empty() && arg.back() == '\0') arg.pop_back();
+        args.push_back(std::move(arg));
+    }
+
+    LocalFree(wideArgv);
+    return args;
+}
+
+bool WindowsCliRequested(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (!argv[i]) continue;
+        if (std::string(argv[i]) != "--background") return true;
+    }
+    return false;
+}
+
+void WindowsRebindConsoleStream(
+    FILE* stream, DWORD standardHandle, const char* device, const char* mode) {
+    const HANDLE handle = GetStdHandle(standardHandle);
+    if (!handle || handle == INVALID_HANDLE_VALUE) return;
+
+    DWORD consoleMode = 0;
+    if (!GetConsoleMode(handle, &consoleMode)) return;
+
+#ifdef _MSC_VER
+    FILE* reopened = nullptr;
+    (void)freopen_s(&reopened, device, mode, stream);
+#else
+    (void)freopen(device, mode, stream);
+#endif
+}
+
+void WindowsAttachParentConsoleForCli(int argc, char** argv) {
+    if (!WindowsCliRequested(argc, argv)) return;
+
+    if (!AttachConsole(ATTACH_PARENT_PROCESS) &&
+        GetLastError() != ERROR_ACCESS_DENIED) {
+        return;
+    }
+
+    // Preserve redirected file/pipe handles. Only reconnect CRT streams that
+    // actually point at the attached console.
+    WindowsRebindConsoleStream(stdin, STD_INPUT_HANDLE, "CONIN$", "r");
+    WindowsRebindConsoleStream(stdout, STD_OUTPUT_HANDLE, "CONOUT$", "w");
+    WindowsRebindConsoleStream(stderr, STD_ERROR_HANDLE, "CONOUT$", "w");
+    std::ios::sync_with_stdio(true);
+}
 #endif
 
 #ifdef __APPLE__
@@ -89,7 +158,10 @@ using json = nlohmann::json;
 #include "src/cli/help.inl"
 #include "src/cli/run.inl"
 
-int main(int argc, char** argv) {
+int RunLogSift(int argc, char** argv) {
+#ifdef _WIN32
+    WindowsAttachParentConsoleForCli(argc, argv);
+#endif
     const CliDispatch cli = RunCli(argc, argv);
     if (cli.handled) return cli.exitCode;
     const bool backgroundMode = cli.backgroundMode;
@@ -107,4 +179,18 @@ int main(int argc, char** argv) {
 #include "src/ui/toast_footer.inl"
 #include "src/app/frame_wait.inl"
 #include "src/app/shutdown.inl"
+
+#ifdef _WIN32
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    std::vector<std::string> args = WindowsCommandLineArgs();
+    std::vector<char*> argv;
+    argv.reserve(args.size());
+    for (std::string& arg : args) argv.push_back(arg.data());
+    return RunLogSift(static_cast<int>(argv.size()), argv.data());
+}
+#else
+int main(int argc, char** argv) {
+    return RunLogSift(argc, argv);
+}
+#endif
 
