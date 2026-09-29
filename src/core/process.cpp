@@ -9,6 +9,10 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 std::string ShellQuote(const std::string& s) {
 #ifdef _WIN32
     std::string out = "\"";
@@ -76,21 +80,80 @@ bool IsEndpointUnavailableError(const std::string& message) {
 
 std::string ReadPipe(const std::string& command) {
 #ifdef _WIN32
-    FILE* pipe = _popen(command.c_str(), "r");
+    SECURITY_ATTRIBUTES security{};
+    security.nLength = sizeof(security);
+    security.bInheritHandle = TRUE;
+
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &security, 0))
+        throw std::runtime_error("Could not create process output pipe.");
+    if (!SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0)) {
+        CloseHandle(readPipe);
+        CloseHandle(writePipe);
+        throw std::runtime_error("Could not configure process output pipe.");
+    }
+
+    HANDLE nullInput = CreateFileA(
+        "NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (nullInput == INVALID_HANDLE_VALUE) nullInput = nullptr;
+
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdInput = nullInput;
+    startup.hStdOutput = writePipe;
+    startup.hStdError = writePipe;
+
+    PROCESS_INFORMATION process{};
+    std::string commandLine = "cmd.exe /D /S /C \"" + command + "\"";
+    const BOOL started = CreateProcessA(
+        nullptr, commandLine.data(), nullptr, nullptr, TRUE,
+        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+
+    CloseHandle(writePipe);
+    if (nullInput) CloseHandle(nullInput);
+
+    if (!started) {
+        const DWORD error = GetLastError();
+        CloseHandle(readPipe);
+        throw std::runtime_error(
+            "Could not start process (Windows error " + std::to_string(error) + ").");
+    }
+
+    std::array<char, 4096> buf{};
+    std::string out;
+    DWORD bytesRead = 0;
+    while (ReadFile(readPipe, buf.data(), static_cast<DWORD>(buf.size()), &bytesRead, nullptr) &&
+           bytesRead > 0) {
+        out.append(buf.data(), bytesRead);
+    }
+    CloseHandle(readPipe);
+
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(process.hProcess, &exitCode);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+
+    if (exitCode != 0)
+        throw std::runtime_error(
+            "process failed (exit " + std::to_string(exitCode) + "):\n" + out);
+    return out;
 #else
     FILE* pipe = popen(command.c_str(), "r");
-#endif
-    if (!pipe) throw std::runtime_error("Could not start curl.");
+    if (!pipe) throw std::runtime_error("Could not start process.");
     std::array<char, 4096> buf{};
     std::string out;
     while (fgets(buf.data(), static_cast<int>(buf.size()), pipe)) out += buf.data();
-#ifdef _WIN32
-    const int code = _pclose(pipe);
-#else
     const int code = pclose(pipe);
-#endif
-    if (code != 0) throw std::runtime_error("curl failed (exit " + std::to_string(code) + "):\n" + out);
+    if (code != 0)
+        throw std::runtime_error(
+            "process failed (exit " + std::to_string(code) + "):\n" + out);
     return out;
+#endif
 }
 
 std::string DedupeLines(const std::string& text);
