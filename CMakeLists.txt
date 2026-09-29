@@ -209,6 +209,8 @@ if(APPLE)
 endif()
 
 if(WIN32)
+    set_target_properties(logsift PROPERTIES
+        WIN32_EXECUTABLE TRUE)
     target_compile_definitions(logsift PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
