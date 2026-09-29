@@ -163,30 +163,11 @@ SiftResult SendModelChunk(
         {"max_tokens", 4096}
     };
 
-    const auto temp = std::filesystem::temp_directory_path() /
-        ("logsift-" + std::to_string(SDL_GetTicks()) + "-" +
-         std::to_string(std::hash<std::string>{}(modelInput)) + ".json");
-    {
-        std::ofstream out(temp, std::ios::binary);
-        out << body.dump();
-    }
-
-    std::string cmd = "curl -sS --fail-with-body --max-time 120 -X POST " +
-        ShellQuote(cfg.endpoint) + " -H " + ShellQuote("Content-Type: application/json");
-    if (!cfg.apiKey.empty())
-        cmd += " -H " + ShellQuote("Authorization: Bearer " + cfg.apiKey);
-    cmd += " --data-binary @" + ShellQuote(temp.string()) + " 2>&1";
-
-    std::string raw;
-    try {
-        raw = ReadPipe(cmd);
-    } catch (...) {
-        std::error_code ec;
-        std::filesystem::remove(temp, ec);
-        throw;
-    }
-    std::error_code ec;
-    std::filesystem::remove(temp, ec);
+    // Keep scan requests fully in-process. Spawning curl through _popen() from
+    // the Windows GUI executable creates a visible console window for every
+    // model-backed scan and also needlessly writes the request to a temp file.
+    const std::string raw =
+        HttpPostJson(cfg.endpoint, cfg.apiKey, body.dump(), 120);
 
     const json response = json::parse(raw);
     if (response.contains("error"))
