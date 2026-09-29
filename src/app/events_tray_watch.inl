@@ -166,7 +166,11 @@
             // Clipboard activity is enough to opportunistically recheck an
             // offline endpoint, but image bytes stay untouched until that check
             // has confirmed the model is reachable again.
-            if (connectionStage == ConnectionStage::Unreachable && !checkingHealth)
+            const bool modelStateNeedsRecheck =
+                connectionStage == ConnectionStage::Unreachable ||
+                connectionStage == ConnectionStage::ModelsFailed ||
+                connectionStage == ConnectionStage::BenchmarkFailed;
+            if (modelStateNeedsRecheck && !checkingHealth)
                 startHealthCheck(false, false);
 
             std::string clip;
