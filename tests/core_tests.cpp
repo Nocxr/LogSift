@@ -35,9 +35,28 @@ int main() {
     compiler.id = "msvc";
     compiler.name = "MSVC";
     compiler.detect = {"error C"};
-    gProfiles = {generic, compiler};
+    LogProfile cmake;
+    cmake.id = "cmake-ninja";
+    cmake.name = "CMake / Ninja";
+    cmake.detect = {"FAILED:", "ninja: build stopped"};
+    gProfiles = {generic, compiler, cmake};
     ok &= check(DetectProfile("C:\\\\src\\\\a.cpp(2): error C2143", config)->id == "msvc",
                 "profile detection");
+    const auto mixedProfiles = DetectProfiles(
+        "FAILED: target.obj\n"
+        "cl.exe /c a.cpp\n"
+        "C:\\\\src\\\\a.cpp(2): error C2143\n"
+        "ninja: build stopped: subcommand failed.\n",
+        config);
+    bool foundMsvc = false;
+    bool foundCmake = false;
+    for (const LogProfile* profile : mixedProfiles) {
+        if (!profile) continue;
+        foundMsvc = foundMsvc || profile->id == "msvc";
+        foundCmake = foundCmake || profile->id == "cmake-ninja";
+    }
+    ok &= check(foundMsvc && foundCmake && mixedProfiles.size() == 2,
+                "additive mixed build profile detection");
     gProfiles.clear();
 
     using Clock = std::chrono::steady_clock;
