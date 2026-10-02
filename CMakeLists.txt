@@ -236,4 +236,10 @@ if(BUILD_TESTING)
     add_test(NAME logsift_cli_msvc COMMAND logsift --cli
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/msvc.log" --json --profile msvc)
     set_tests_properties(logsift_cli_msvc PROPERTIES PASS_REGULAR_EXPRESSION "C2143")
+
+    add_test(NAME logsift_cli_mixed_cmake_msvc COMMAND logsift --cli
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/mixed-cmake-msvc.log" --json)
+    set_tests_properties(logsift_cli_mixed_cmake_msvc PROPERTIES
+        PASS_REGULAR_EXPRESSION
+        "FAILED:.*C2059.*C2374.*note: see declaration.*C2086.*ninja: build stopped")
 endif()
