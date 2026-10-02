@@ -54,17 +54,47 @@ const LogProfile* FindProfile(const std::string& id) {
     for (const auto& p:gProfiles) if (p.id==id) return &p;
     return nullptr;
 }
+std::vector<const LogProfile*> DetectProfiles(const std::string& text, const Config& cfg) {
+    if (cfg.profileId == "generic") {
+        if (const auto* generic = FindProfile("generic")) return {generic};
+        return {};
+    }
+
+    if (cfg.profileId != "auto") {
+        if (const auto* forced = FindProfile(cfg.profileId)) return {forced};
+        // A stale/unknown saved profile must not disable automatic detection.
+    }
+
+    struct Match {
+        int score = 0;
+        const LogProfile* profile = nullptr;
+    };
+    std::vector<Match> matches;
+    for (const auto& p : gProfiles) {
+        if (p.id == "generic") continue;
+        int score = 0;
+        for (const auto& s : p.detect) {
+            if (ContainsAny(text, std::vector<std::string>{s})) ++score;
+        }
+        if (score > 0) matches.push_back({score, &p});
+    }
+
+    std::stable_sort(matches.begin(), matches.end(), [](const Match& a, const Match& b) {
+        if (a.score != b.score) return a.score > b.score;
+        return a.profile->name < b.profile->name;
+    });
+
+    std::vector<const LogProfile*> result;
+    result.reserve(matches.size());
+    for (const Match& match : matches) result.push_back(match.profile);
+
+    if (result.empty()) {
+        if (const auto* generic = FindProfile("generic")) result.push_back(generic);
+    }
+    return result;
+}
+
 const LogProfile* DetectProfile(const std::string& text, const Config& cfg) {
-    if (cfg.profileId=="generic") return FindProfile("generic");
-    if (cfg.profileId!="auto") {
-        if (const auto* forced=FindProfile(cfg.profileId)) return forced;
-    }
-    const LogProfile* best=nullptr; int bestScore=0;
-    for (const auto& p:gProfiles) {
-        if (p.id=="generic") continue;
-        int score=0; for (const auto& s:p.detect) if (ContainsAny(text,std::vector<std::string>{s})) ++score;
-        if (score>bestScore) {best=&p; bestScore=score;}
-    }
-    if (best) return best;
-    return FindProfile("generic");
+    const auto matches = DetectProfiles(text, cfg);
+    return matches.empty() ? nullptr : matches.front();
 }
