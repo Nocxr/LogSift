@@ -56,7 +56,7 @@ bool LooksLikeStructuredBuildDiagnostics(const std::string& filtered) {
             lower.find("cmake warning") != std::string::npos ||
             lower.find("ninja: build stopped") != std::string::npos ||
             lower.find("build command exited with code") != std::string::npos ||
-            line.rfind("FAILED:", 0) == 0 ||
+            lower.rfind("failed:", 0) == 0 ||
             lower.rfind("make: ***", 0) == 0) {
             return true;
         }
@@ -163,7 +163,7 @@ SiftResult SendModelChunk(
         {"messages", json::array({
             {{"role", "system"}, {"content", prompt}},
             {{"role", "user"}, {"content",
-                std::string("Select the highest-value diagnostics from these candidate log lines. Output at most 12 lines, verbatim.\n\n") +
+                std::string("Select the highest-value diagnostics from these candidate log lines. Keep every unique error/fatal/exception/failed-target line. For warning-only noise, keep at most 12 highest-value lines. Output retained lines verbatim.\n\n") +
                 modelInput +
                 ((cfg.model.find("qwen3") != std::string::npos || cfg.model.find("Qwen3") != std::string::npos)
                     ? "\n/no_think"
