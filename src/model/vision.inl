@@ -230,6 +230,24 @@ SiftResult Send(
     }
 
     combined.text = FinalizeModelText(aggregate, input, cfg);
+
+    // The model may prioritize or reduce ambiguous diagnostics, but it is never
+    // allowed to erase a deterministic high-confidence error. Keep every unique
+    // non-Unreal error/fatal/failure line (and directly-related notes) even when
+    // the model did not select it. False positives are safer than hidden failures.
+    if (!LooksLikeUnrealLog(input)) {
+        const std::string mustKeep =
+            ConservativeMustKeepDiagnostics(input, cfg);
+        if (!mustKeep.empty()) {
+            const std::string modelSelected =
+                (combined.text == "NO_DIAGNOSTICS" ||
+                 combined.text == "NO_DIAGNOSTICS\n")
+                    ? std::string{}
+                    : combined.text;
+            combined.text = DedupeLines(mustKeep + modelSelected);
+        }
+    }
+
     combined.usedLocalFallback = anyFallback;
     if (chunks.size() > 1)
         combined.route = anyFallback ? "Chunked model fallback" : "LLM chunked";
