@@ -35,6 +35,8 @@ const char* kDefaultPrompt =
     "exception/assertion messages, and short notes that directly identify declarations or causes.\n"
     "- Never output the same diagnostic twice. Collapse identical/repeated diagnostics to one occurrence.\n"
     "- Prefer the earliest/root diagnostic over errors caused by it; keep cascades only when they add unique useful information.\n"
+    "- Never discard a unique error, fatal, exception, failed-target, or directly-related note just to reduce output size.\n"
+    "- When uncertain whether a diagnostic matters, keep it; extra relevant lines are preferable to silently losing a real failure.\n"
     "- Remove successful steps, progress, routine build commands, historical/previous-session failures, test fixtures, "
     "example error strings, recovered/transient errors, unrelated warnings, timestamps, telemetry, and duplicated traces.\n"
     "- Do not diagnose, explain, propose fixes, summarize the build, or add conversational text.\n"
