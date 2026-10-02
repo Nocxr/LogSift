@@ -39,19 +39,29 @@ std::string GenericLogCandidates(const std::string& text) {
 }
 
 bool LooksLikeStructuredBuildDiagnostics(const std::string& filtered) {
-    int strong = 0;
     std::istringstream in(filtered);
     std::string line;
     while (std::getline(in, line)) {
-        if (line.find(": error ") != std::string::npos ||
-            line.find("fatal error") != std::string::npos ||
-            line.find("LNK") != std::string::npos ||
-            line.find("undefined reference") != std::string::npos ||
-            line.find("unresolved external") != std::string::npos) {
-            ++strong;
+        const std::string lower = LowerDiagnosticLine(line);
+        if (lower.find(": error ") != std::string::npos ||
+            lower.find(": warning ") != std::string::npos ||
+            lower.find("fatal error") != std::string::npos ||
+            lower.find("error c") != std::string::npos ||
+            lower.find("warning c") != std::string::npos ||
+            lower.find("error lnk") != std::string::npos ||
+            lower.find("warning lnk") != std::string::npos ||
+            lower.find("undefined reference") != std::string::npos ||
+            lower.find("unresolved external") != std::string::npos ||
+            lower.find("cmake error") != std::string::npos ||
+            lower.find("cmake warning") != std::string::npos ||
+            lower.find("ninja: build stopped") != std::string::npos ||
+            lower.find("build command exited with code") != std::string::npos ||
+            line.rfind("FAILED:", 0) == 0 ||
+            lower.rfind("make: ***", 0) == 0) {
+            return true;
         }
     }
-    return strong > 0;
+    return false;
 }
 
 std::string FastStructuredResult(const std::string& filtered) {
