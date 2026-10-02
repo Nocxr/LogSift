@@ -1,0 +1,11 @@
+cmake --build "build" --target Timer
+[1/2] Building CXX object CMakeFiles/Timer.dir/src/modules/timer/TimerModule.cpp.obj
+FAILED: [code=2] CMakeFiles/Timer.dir/src/modules/timer/TimerModule.cpp.obj
+"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe" /nologo /TP /c H:\projects\c++\Dashboard\src\modules\timer\TimerModule.cpp
+H:\projects\c++\Dashboard\src\modules\timer\TimerModule.cpp(5250): error C2059: syntax error: 'const'
+H:\projects\c++\Dashboard\src\modules\timer\TimerModule.cpp(5251): error C2374: 'buttonWidth': redefinition; multiple initialization
+H:\projects\c++\Dashboard\src\modules\timer\TimerModule.cpp(5250): note: see declaration of 'buttonWidth'
+H:\projects\c++\Dashboard\src\modules\timer\TimerModule.cpp(5251): error C2086: 'const int buttonWidth': redefinition
+H:\projects\c++\Dashboard\src\modules\timer\TimerModule.cpp(5250): note: see declaration of 'buttonWidth'
+ninja: build stopped: subcommand failed.
+make: *** [Makefile:94: timer] Error 2
