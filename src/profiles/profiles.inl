@@ -124,6 +124,37 @@ DiagnosticSplit SplitWithProfile(const std::string& text, const Config& cfg) {
     return result;
 }
 
+std::string ConservativeMustKeepDiagnostics(const std::string& text, const Config& cfg) {
+    if (!cfg.showErrors) return {};
+
+    const auto profiles = DetectProfiles(text, cfg);
+    std::istringstream in(text);
+    std::ostringstream out;
+    std::unordered_set<std::string> seen;
+    std::string line;
+    bool previousWasError = false;
+
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        bool profileHigh = false;
+        for (const LogProfile* profile : profiles) {
+            if (profile)
+                profileHigh = profileHigh || ContainsAny(line, profile->highPriority);
+        }
+
+        const bool high = profileHigh || IsConservativeErrorSignal(line);
+        const bool relatedNote =
+            cfg.showContext && IsDiagnosticNote(line) && previousWasError;
+        if (high || relatedNote) {
+            const std::string shown = FormatDiagnosticText(line, cfg);
+            if (seen.insert(shown).second) out << shown;
+        }
+        previousWasError = high || relatedNote;
+    }
+    return out.str();
+}
+
 std::string ProfileName(const std::string& text, const Config& cfg) {
     const auto profiles = DetectProfiles(text, cfg);
     if (profiles.empty()) return "Generic Log";
