@@ -14,4 +14,5 @@ extern std::filesystem::path gProfilesDir;
 bool ContainsAny(const std::string& line, const std::vector<std::string>& needles);
 void LoadProfiles(const char* argv0);
 const LogProfile* FindProfile(const std::string& id);
+std::vector<const LogProfile*> DetectProfiles(const std::string& text, const Config& cfg);
 const LogProfile* DetectProfile(const std::string& text, const Config& cfg);
