@@ -16,6 +16,7 @@
 #include "src/core/task.h"
 
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
