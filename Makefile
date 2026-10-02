@@ -12,7 +12,7 @@ CTEST ?= ctest
 GENERATOR ?= Ninja
 BUILD_TYPE ?= Release
 
-.PHONY: all configure build run test clean rebuild
+.PHONY: all configure build run test clean rebuild stop
 
 all: build
 
@@ -20,7 +20,17 @@ configure:
 	$(CMAKE) -S . -B "$(BUILD_DIR)" -G "$(GENERATOR)" -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
 
 build: configure
+ifeq ($(OS),Windows_NT)
+	-@taskkill /IM logsift.exe /F >NUL 2>&1
+endif
 	$(CMAKE) --build "$(BUILD_DIR)"
+
+stop:
+ifeq ($(OS),Windows_NT)
+	-@taskkill /IM logsift.exe /F >NUL 2>&1
+else
+	@:
+endif
 
 ifeq ($(OS),Windows_NT)
 run: build
@@ -39,7 +49,7 @@ endif
 test: build
 	$(CTEST) --test-dir "$(BUILD_DIR)" --output-on-failure
 
-clean:
+clean: stop
 	$(CMAKE) -E remove_directory "$(BUILD_DIR)"
 
 rebuild: clean build
