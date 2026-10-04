@@ -29,6 +29,83 @@ std::string LowerDiagnosticLine(const std::string& line) {
     return lower;
 }
 
+bool IsPowerShellDiagnosticLocation(const std::string& line) {
+    const std::string lower = LowerDiagnosticLine(line);
+    const size_t first = lower.find_first_not_of(" \t");
+    if (first == std::string::npos || lower.compare(first, 3, "at ") != 0)
+        return false;
+
+    const size_t charPos = lower.find(" char:", first + 3);
+    if (charPos == std::string::npos) return false;
+
+    // PowerShell locations are typically:
+    //   At C:\\path\\script.ps1:524 char:5
+    // or:
+    //   At line:1 char:3
+    return lower.rfind(':', charPos - 1) != std::string::npos;
+}
+
+bool IsPowerShellActionableMessage(const std::string& line) {
+    const std::string lower = LowerDiagnosticLine(line);
+    return lower.find("unexpected token") != std::string::npos ||
+           lower.find("parsererror") != std::string::npos ||
+           lower.find("missing closing") != std::string::npos ||
+           lower.find("missing expression") != std::string::npos ||
+           lower.find("missing statement") != std::string::npos ||
+           lower.find("assignment expression is not valid") != std::string::npos ||
+           lower.find("not recognized as the name of a cmdlet") != std::string::npos ||
+           lower.find("cannot bind parameter") != std::string::npos ||
+           lower.find("cannot convert value") != std::string::npos ||
+           lower.find("cannot find path") != std::string::npos ||
+           lower.find("positional parameter cannot be found") != std::string::npos ||
+           lower.find("null-valued expression") != std::string::npos ||
+           lower.find("cannot index into a null array") != std::string::npos;
+}
+
+bool IsGenericFailureSummary(const std::string& line) {
+    const std::string lower = LowerDiagnosticLine(line);
+
+    // Keep structured build failure lines such as "FAILED: target.obj". They
+    // identify the failed target. Suppress only prose wrappers when a concrete
+    // diagnostic exists elsewhere in the same input.
+    if (lower.rfind("failed:", 0) == 0 ||
+        lower.rfind("ninja:", 0) == 0 ||
+        lower.rfind("make: ***", 0) == 0) {
+        return false;
+    }
+
+    return lower.find("install failed") != std::string::npos ||
+           lower.find("build failed") != std::string::npos ||
+           lower.find("command failed") != std::string::npos ||
+           lower.find("request failed") != std::string::npos ||
+           lower.find("operation failed") != std::string::npos ||
+           lower.find("failed while") != std::string::npos ||
+           lower.find("failed because") != std::string::npos ||
+           lower.find("stopped because") != std::string::npos;
+}
+
+bool IsConcreteDiagnosticSignal(const std::string& line) {
+    const std::string lower = LowerDiagnosticLine(line);
+    if (IsPowerShellActionableMessage(line)) return true;
+
+    return lower.find("): error c") != std::string::npos ||
+           lower.find(": error:") != std::string::npos ||
+           lower.find(": fatal error") != std::string::npos ||
+           lower.find("error lnk") != std::string::npos ||
+           lower.find("undefined reference") != std::string::npos ||
+           lower.find("unresolved external") != std::string::npos ||
+           lower.find("cmake error") != std::string::npos ||
+           lower.find("traceback (most recent call last)") != std::string::npos ||
+           lower.find("syntaxerror:") != std::string::npos ||
+           lower.find("indentationerror:") != std::string::npos ||
+           lower.find("taberror:") != std::string::npos ||
+           ContainsDiagnosticWord(lower, "fatal") ||
+           ContainsDiagnosticWord(lower, "exception") ||
+           ContainsDiagnosticWord(lower, "panic") ||
+           ContainsDiagnosticWord(lower, "assertion") ||
+           ContainsDiagnosticWord(lower, "segfault");
+}
+
 bool IsConservativeErrorSignal(const std::string& line) {
     const std::string lower = LowerDiagnosticLine(line);
 
@@ -42,7 +119,8 @@ bool IsConservativeErrorSignal(const std::string& line) {
         if (ContainsDiagnosticWord(lower, word)) return true;
     }
 
-    return lower.find("undefined reference") != std::string::npos ||
+    return IsPowerShellActionableMessage(line) ||
+           lower.find("undefined reference") != std::string::npos ||
            lower.find("unresolved external") != std::string::npos ||
            lower.find("segmentation fault") != std::string::npos ||
            lower.find("traceback (most recent call last)") != std::string::npos ||
@@ -74,16 +152,59 @@ DiagnosticSplit SplitWithProfile(const std::string& text, const Config& cfg) {
     const auto profiles = DetectProfiles(text, cfg);
     if (profiles.empty()) return result;
 
-    std::istringstream in(text);
+    std::vector<std::string> lines;
+    {
+        std::istringstream in(text);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(std::move(line));
+        }
+    }
+
+    // Diagnostic output is often a block, not one magic line. PowerShell in
+    // particular puts the file/line, source line, caret, and actual parser
+    // message on separate lines. Preserve the complete block whenever it
+    // contains an actionable message.
+    std::vector<bool> powerShellContext(lines.size(), false);
+    bool hasConcreteDiagnostic = false;
+    for (const std::string& line : lines) {
+        hasConcreteDiagnostic =
+            hasConcreteDiagnostic || IsConcreteDiagnosticSignal(line);
+    }
+
+    for (size_t i = 0; i < lines.size(); ++i) {
+        if (!IsPowerShellDiagnosticLocation(lines[i])) continue;
+
+        size_t end = i + 1;
+        while (end < lines.size() &&
+               !lines[end].empty() &&
+               !IsPowerShellDiagnosticLocation(lines[end]) &&
+               end - i < 10) {
+            ++end;
+        }
+
+        bool actionable = false;
+        for (size_t j = i; j < end; ++j) {
+            if (IsPowerShellActionableMessage(lines[j])) {
+                actionable = true;
+                break;
+            }
+        }
+        if (!actionable) continue;
+
+        for (size_t j = i; j < end; ++j)
+            powerShellContext[j] = true;
+    }
+
     std::ostringstream included;
     std::ostringstream questionable;
     std::unordered_set<std::string> includedSeen;
     std::unordered_set<std::string> questionableSeen;
-    std::string line;
     bool previousIncludedDiagnostic = false;
 
-    while (std::getline(in, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const std::string& line = lines[i];
 
         bool profileHigh = false;
         bool profileWarning = false;
@@ -96,11 +217,22 @@ DiagnosticSplit SplitWithProfile(const std::string& text, const Config& cfg) {
                 profileQuestionable || ContainsAny(line, profile->questionable);
         }
 
-        const bool conservativeHigh = IsConservativeErrorSignal(line);
+        bool conservativeHigh = IsConservativeErrorSignal(line);
         const bool conservativeWarning = IsConservativeWarningSignal(line);
         const bool note = IsDiagnosticNote(line);
 
+        // Generic wrappers such as "install failed" are useful only when no
+        // concrete diagnostic is present. Do not let them crowd out the line
+        // that actually tells the user what to fix.
+        if (hasConcreteDiagnostic && IsGenericFailureSummary(line)) {
+            profileHigh = false;
+            conservativeHigh = false;
+        }
+
+        const bool keepPowerShellBlock =
+            cfg.showErrors && powerShellContext[i];
         const bool keep =
+            keepPowerShellBlock ||
             (cfg.showErrors && (profileHigh || conservativeHigh)) ||
             (cfg.showWarnings && (profileWarning || conservativeWarning)) ||
             (cfg.showContext && note && previousIncludedDiagnostic);
