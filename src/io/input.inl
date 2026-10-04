@@ -91,9 +91,32 @@ std::vector<std::string> DiagnosticEntries(const std::string& text) {
                startsWith("Caused by:");
     };
 
+    bool inPowerShellBlock = false;
+
     while (std::getline(stream, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line.empty()) continue;
+
+        if (line.empty()) {
+            if (inPowerShellBlock && !current.empty()) {
+                entries.push_back(current);
+                current.clear();
+                inPowerShellBlock = false;
+            }
+            continue;
+        }
+
+        if (IsPowerShellDiagnosticLocation(line)) {
+            if (!current.empty()) entries.push_back(current);
+            current = line;
+            inPowerShellBlock = true;
+            continue;
+        }
+
+        if (inPowerShellBlock) {
+            current += '\n';
+            current += line;
+            continue;
+        }
 
         // Explicit compiler/runtime starts always begin a new diagnostic. For generic
         // output, each unindented top-level line is also its own entry; only clearly
