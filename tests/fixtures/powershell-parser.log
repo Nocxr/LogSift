@@ -1,0 +1,13 @@
+Installing GX to C:\Users\Marshall\Documents\PowerShell\Modules\GX
+
+GX install failed while loading the module:
+The running command stopped because the preference variable "ErrorActionPreference" or common parameter is set to Stop:
+At C:\Users\Marshall\Documents\PowerShell\Modules\GX\Commands\Repo.ps1:524 char:5
++     }
++     ~
+Unexpected token '}' in expression or statement.
+
+At C:\Users\Marshall\Documents\PowerShell\Modules\GX\Commands\Repo.ps1:550 char:1
++ }
++ ~
+Unexpected token '}' in expression or statement.
