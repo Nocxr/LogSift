@@ -230,7 +230,11 @@ DiagnosticSplit SplitWithProfile(const std::string& text, const Config& cfg) {
         }
 
         const bool keepPowerShellBlock =
-            cfg.showErrors && powerShellContext[i];
+            cfg.showErrors &&
+            powerShellContext[i] &&
+            (cfg.showContext ||
+             IsPowerShellDiagnosticLocation(line) ||
+             IsPowerShellActionableMessage(line));
         const bool keep =
             keepPowerShellBlock ||
             (cfg.showErrors && (profileHigh || conservativeHigh)) ||
@@ -403,6 +407,10 @@ DiagnosticSplit SplitUnrealDiagnostics(const std::string& text, const Config& cf
 
 std::string DetectLogType(const std::string& text) {
     if (LooksLikeUnrealLog(text)) return "Unreal";
+    if (text.find("ParserError") != std::string::npos ||
+        text.find("Unexpected token") != std::string::npos ||
+        text.find("FullyQualifiedErrorId") != std::string::npos)
+        return "PowerShell";
     if (text.find("error C") != std::string::npos || text.find("LNK") != std::string::npos) return "MSVC / Linker";
     if (text.find("undefined reference") != std::string::npos || text.find("fatal error:") != std::string::npos) return "GCC / Clang";
     if (text.find("ninja: build stopped") != std::string::npos || text.find("CMake Error") != std::string::npos) return "CMake / Ninja";
