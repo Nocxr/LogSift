@@ -242,4 +242,15 @@ if(BUILD_TESTING)
     set_tests_properties(logsift_cli_mixed_cmake_msvc PROPERTIES
         PASS_REGULAR_EXPRESSION
         "FAILED:.*C2059.*C2374.*note: see declaration.*C2086.*ninja: build stopped")
+
+    add_test(NAME logsift_cli_powershell_parser COMMAND logsift --cli
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/powershell-parser.log" --json)
+    set_tests_properties(logsift_cli_powershell_parser PROPERTIES
+        PASS_REGULAR_EXPRESSION "Unexpected token"
+        FAIL_REGULAR_EXPRESSION "GX install failed while loading the module")
+
+    add_test(NAME logsift_cli_powershell_count COMMAND logsift --cli
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/powershell-parser.log" --json)
+    set_tests_properties(logsift_cli_powershell_count PROPERTIES
+        PASS_REGULAR_EXPRESSION "diagnostic_count.*2")
 endif()
