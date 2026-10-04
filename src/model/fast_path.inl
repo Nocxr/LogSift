@@ -54,6 +54,10 @@ bool LooksLikeStructuredBuildDiagnostics(const std::string& filtered) {
             lower.find("unresolved external") != std::string::npos ||
             lower.find("cmake error") != std::string::npos ||
             lower.find("cmake warning") != std::string::npos ||
+            lower.find("unexpected token") != std::string::npos ||
+            lower.find("parsererror") != std::string::npos ||
+            lower.find("not recognized as the name of a cmdlet") != std::string::npos ||
+            lower.find("cannot bind parameter") != std::string::npos ||
             lower.find("ninja: build stopped") != std::string::npos ||
             lower.find("build command exited with code") != std::string::npos ||
             lower.rfind("failed:", 0) == 0 ||
