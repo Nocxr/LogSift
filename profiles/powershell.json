@@ -1,0 +1,33 @@
+{
+  "id": "powershell",
+  "name": "PowerShell",
+  "detect": [
+    "ParserError",
+    "Unexpected token",
+    ".ps1:",
+    "FullyQualifiedErrorId"
+  ],
+  "high_priority": [
+    "Unexpected token",
+    "ParserError",
+    "CommandNotFoundException",
+    "ParameterBindingException",
+    "RuntimeException",
+    "MethodInvocationException",
+    "ItemNotFoundException",
+    "not recognized as the name of a cmdlet",
+    "cannot bind parameter",
+    "cannot convert value",
+    "cannot find path",
+    "null-valued expression",
+    "cannot index into a null array"
+  ],
+  "warnings": [
+    "WARNING:"
+  ],
+  "questionable": [
+    "CategoryInfo",
+    "FullyQualifiedErrorId"
+  ],
+  "noise": []
+}
